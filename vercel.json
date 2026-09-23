@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "POSApp.Web/POSApp.Web.csproj",
+      "use": "@vercel/dotnet",
+      "config": {
+        "includeFiles": [
+          "POSApp.Data/**",
+          "POSApp.Web/**"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/"
+    }
+  ],
+  "framework": "dotnet"
+}

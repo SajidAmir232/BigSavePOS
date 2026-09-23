@@ -1,0 +1,5 @@
+# Don't commit AWS credentials to git
+.elasticbeanstalk/*.cfg.yml.bak
+
+# Don't commit the production connection string with real password
+POSApp.Web/appsettings.Production.json

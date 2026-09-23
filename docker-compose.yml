@@ -1,0 +1,23 @@
+services:
+  pos-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pos-web-app
+    ports:
+      - "5000:5000"
+    volumes:
+      - pos-data:/app/data
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5000
+      POSAPP_DB_PATH: /app/data/pos_local.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+volumes:
+  pos-data:
