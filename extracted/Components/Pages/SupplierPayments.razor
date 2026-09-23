@@ -1,0 +1,125 @@
+@page "/supplier-payments"
+@rendermode InteractiveServer
+@inject SupplierService SupplierService
+@inject SupplierPaymentService PaymentService
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">Supplier Payments</h2>
+    <button class="btn btn-primary btn-sm" @onclick="ShowAddForm">+ Record Payment</button>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Supplier</th><th>Amount</th><th>Date</th><th>Note</th><th>Action</th></tr></thead>
+            <tbody>
+                @foreach (var p in payments)
+                {
+                    <tr>
+                        <td class="fw-600">@(suppliers.FirstOrDefault(s => s.Guid == p.SupplierGuid)?.Name ?? "Unknown")</td>
+                        <td class="fw-600" style="color:#ef4444;">Rs@(p.Amount.ToString("N0"))</td>
+                        <td>@p.PaymentDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(p.Note ?? "-")</td>
+                        <td><button class="btn btn-ghost btn-sm" @onclick="() => DeletePayment(p.Id)">Delete</button></td>
+                    </tr>
+                }
+                @if (!payments.Any())
+                {
+                    <tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px;">No payments recorded</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (showForm)
+{
+    <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;" @onclick="CloseForm">
+        <div class="card" style="width:400px;" @onclick:stopPropagation="true">
+            <div class="card-header">Record Supplier Payment</div>
+            <div class="form-group">
+                <label>Supplier</label>
+                <select class="form-control form-control-sm" @bind="formSupplierGuid">
+                    <option value="">-- Select Supplier --</option>
+                    @foreach (var s in suppliers)
+                    {
+                        <option value="@s.Guid">@s.Name@(s.PayableBalance > 0 ? $" (Payable: Rs{s.PayableBalance:N0})" : "")</option>
+                    }
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Amount (Rs)</label>
+                <input type="number" class="form-control form-control-sm" @bind="formAmount" min="1" />
+            </div>
+            <div class="form-group">
+                <label>Note</label>
+                <input class="form-control form-control-sm" @bind="formNote" placeholder="Optional note" />
+            </div>
+            <div class="d-flex gap-2" style="justify-content:flex-end;">
+                <button class="btn btn-ghost btn-sm" @onclick="CloseForm">Cancel</button>
+                <button class="btn btn-success btn-sm" @onclick="SavePayment">Save Payment</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<SupplierPayment> payments = new();
+    private List<Supplier> suppliers = new();
+    private bool showForm;
+    private string formSupplierGuid = "";
+    private decimal formAmount;
+    private string formNote = "";
+
+    protected override void OnInitialized()
+    {
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        payments = PaymentService.GetAll();
+        suppliers = SupplierService.GetAll();
+    }
+
+    private void ShowAddForm()
+    {
+        formSupplierGuid = "";
+        formAmount = 0;
+        formNote = "";
+        showForm = true;
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private void SavePayment()
+    {
+        if (string.IsNullOrEmpty(formSupplierGuid) || formAmount <= 0) return;
+
+        var payment = new SupplierPayment
+        {
+            SupplierGuid = Guid.Parse(formSupplierGuid),
+            Amount = formAmount,
+            PaymentDate = DateTime.Now,
+            Note = formNote
+        };
+
+        PaymentService.Save(payment);
+
+        var supplier = suppliers.FirstOrDefault(s => s.Guid == payment.SupplierGuid);
+        if (supplier != null)
+        {
+            supplier.PayableBalance -= formAmount;
+            SupplierService.Save(supplier);
+        }
+
+        showForm = false;
+        LoadData();
+    }
+
+    private void DeletePayment(int id)
+    {
+        PaymentService.Delete(id);
+        LoadData();
+    }
+}

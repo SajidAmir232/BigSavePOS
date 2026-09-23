@@ -1,0 +1,109 @@
+@page "/customer-ledger"
+@rendermode InteractiveServer
+@inject CustomerService CustomerService
+@inject CustomerLedgerService LedgerService
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">Customer Ledger</h2>
+</div>
+
+<div class="card mb-4">
+    <div class="d-flex gap-3 align-center">
+        <div class="form-group mb-0" style="flex:1;">
+            <label>Select Customer</label>
+            <select class="form-control form-control-sm" @bind="selectedCustomerGuid" @bind:after="LoadLedger">
+                <option value="">-- Select Customer --</option>
+                @foreach (var c in customers)
+                {
+                    <option value="@c.Guid">@c.Name</option>
+                }
+            </select>
+        </div>
+        <div class="form-group mb-0">
+            <label>From</label>
+            <input type="date" class="form-control form-control-sm" @bind="fromDate" @bind:after="LoadLedger" />
+        </div>
+        <div class="form-group mb-0">
+            <label>To</label>
+            <input type="date" class="form-control form-control-sm" @bind="toDate" @bind:after="LoadLedger" />
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(selectedCustomerGuid))
+{
+    var customer = customers.FirstOrDefault(c => c.Guid == Guid.Parse(selectedCustomerGuid));
+    if (customer != null)
+    {
+        <div class="stat-grid mb-4">
+            <div class="stat-card green">
+                <div class="label">Current Balance</div>
+                <div class="value">Rs@(customer.CurrentBalance.ToString("N0"))</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="label">Credit Limit</div>
+                <div class="value">Rs@(customer.CreditLimit.ToString("N0"))</div>
+            </div>
+            <div class="stat-card amber">
+                <div class="label">Opening Balance</div>
+                <div class="value">Rs@(customer.OpeningBalance.ToString("N0"))</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Ledger - @customer.Name</div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
+                    <tbody>
+                        @foreach (var entry in ledgerEntries)
+                        {
+                            <tr>
+                                <td>@(entry.Date == DateTime.MinValue ? "-" : entry.Date.ToString("dd/MM/yyyy"))</td>
+                                <td><span class="badge @(entry.Type == "Payment" ? "badge-green" : entry.Type == "Invoice" ? "badge-red" : "badge-blue")">@entry.Type</span></td>
+                                <td>@entry.ReferenceNumber</td>
+                                <td class="fw-600" style="color:@(entry.Debit > 0 ? "#ef4444" : "#64748b")">@(entry.Debit > 0 ? $"Rs{entry.Debit:N0}" : "-")</td>
+                                <td class="fw-600" style="color:@(entry.Credit > 0 ? "#10b981" : "#64748b")">@(entry.Credit > 0 ? $"Rs{entry.Credit:N0}" : "-")</td>
+                                <td class="fw-700">Rs@(entry.RunningBalance.ToString("N0"))</td>
+                            </tr>
+                        }
+                        @if (!ledgerEntries.Any())
+                        {
+                            <tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px;">No ledger entries found</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}
+else
+{
+    <div class="card" style="text-align:center;padding:40px;color:#94a3b8;">
+        Select a customer to view their ledger
+    </div>
+}
+
+@code {
+    private string selectedCustomerGuid = "";
+    private DateTime fromDate = DateTime.Now.AddMonths(-6);
+    private DateTime toDate = DateTime.Now;
+    private List<Customer> customers = new();
+    private List<CustomerLedgerEntry> ledgerEntries = new();
+
+    protected override void OnInitialized()
+    {
+        customers = CustomerService.GetAll();
+    }
+
+    private void LoadLedger()
+    {
+        if (string.IsNullOrEmpty(selectedCustomerGuid))
+        {
+            ledgerEntries = new();
+            return;
+        }
+
+        ledgerEntries = LedgerService.GetCustomerLedger(Guid.Parse(selectedCustomerGuid), fromDate, toDate);
+    }
+}

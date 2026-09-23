@@ -1,0 +1,142 @@
+@page "/customers"
+@rendermode InteractiveServer
+@inject CustomerService CustomerService
+
+<div class="d-flex align-center justify-between mb-4">
+    <input type="text" class="form-control form-control-sm" placeholder="Search customers..." @bind="searchQuery" @bind:event="oninput" style="width: 280px;" />
+    <button class="btn btn-primary btn-sm" @onclick="ShowAddForm">+ Add Customer</button>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Address</th>
+                    <th>Balance</th>
+                    <th>Credit Limit</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in filteredCustomers)
+                {
+                    <tr>
+                        <td class="fw-600">@c.Name</td>
+                        <td>@(c.Phone ?? "-")</td>
+                        <td>@(c.Address ?? "-")</td>
+                        <td class="fw-600 @(c.CurrentBalance > 0 ? "" : "")">
+                            Rs@(c.CurrentBalance.ToString("N0"))
+                        </td>
+                        <td>Rs@(c.CreditLimit.ToString("N0"))</td>
+                        <td>
+                            <button class="btn btn-ghost btn-sm" @onclick="() => EditCustomer(c)">Edit</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (showForm)
+{
+    <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;" @onclick="CloseForm">
+        <div class="card" style="width:420px;" @onclick:stopPropagation="true">
+            <div class="card-header">@(editingCustomer == null ? "Add Customer" : "Edit Customer")</div>
+            <div class="form-group">
+                <label>Name</label>
+                <input class="form-control" @bind="formName" />
+            </div>
+            <div class="form-group">
+                <label>Phone</label>
+                <input class="form-control" @bind="formPhone" />
+            </div>
+            <div class="form-group">
+                <label>Address</label>
+                <input class="form-control" @bind="formAddress" />
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group">
+                    <label>Opening Balance</label>
+                    <input class="form-control" type="number" @bind="formBalance" />
+                </div>
+                <div class="form-group">
+                    <label>Credit Limit</label>
+                    <input class="form-control" type="number" @bind="formCreditLimit" />
+                </div>
+            </div>
+            <div class="d-flex gap-2" style="justify-content:flex-end;">
+                <button class="btn btn-ghost btn-sm" @onclick="CloseForm">Cancel</button>
+                <button class="btn btn-primary btn-sm" @onclick="SaveCustomer">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Customer> allCustomers = new();
+    private string searchQuery = "";
+    private bool showForm;
+    private Customer? editingCustomer;
+    private string formName = "", formPhone = "", formAddress = "";
+    private decimal formBalance, formCreditLimit;
+
+    private List<Customer> filteredCustomers => string.IsNullOrWhiteSpace(searchQuery)
+        ? allCustomers
+        : allCustomers.Where(c => c.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                                  (c.Phone ?? "").Contains(searchQuery)).ToList();
+
+    protected override void OnInitialized() => LoadCustomers();
+
+    private void LoadCustomers() => allCustomers = CustomerService.GetAll();
+
+    private void ShowAddForm()
+    {
+        editingCustomer = null;
+        formName = formPhone = formAddress = "";
+        formBalance = formCreditLimit = 0;
+        showForm = true;
+    }
+
+    private void EditCustomer(Customer c)
+    {
+        editingCustomer = c;
+        formName = c.Name;
+        formPhone = c.Phone ?? "";
+        formAddress = c.Address ?? "";
+        formBalance = c.OpeningBalance;
+        formCreditLimit = c.CreditLimit;
+        showForm = true;
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private void SaveCustomer()
+    {
+        if (editingCustomer != null)
+        {
+            editingCustomer.Name = formName;
+            editingCustomer.Phone = formPhone;
+            editingCustomer.Address = formAddress;
+            editingCustomer.OpeningBalance = formBalance;
+            editingCustomer.CreditLimit = formCreditLimit;
+        }
+        else
+        {
+            editingCustomer = new Customer
+            {
+                Name = formName,
+                Phone = formPhone,
+                Address = formAddress,
+                OpeningBalance = formBalance,
+                CreditLimit = formCreditLimit
+            };
+        }
+        CustomerService.Save(editingCustomer);
+        showForm = false;
+        LoadCustomers();
+    }
+}

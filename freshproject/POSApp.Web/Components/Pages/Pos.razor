@@ -1,0 +1,139 @@
+@page "/pos"
+@rendermode InteractiveServer
+@using POSApp.Data.Models
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Web
+@inject ProductService ProductService
+@inject CustomerService CustomerService
+@inject InvoiceService InvoiceService
+@inject HeldSaleService HeldSaleService
+@inject WebAuthService WebAuth
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">Professional POS Billing</h2>
+    <div class="d-flex gap-2 align-center">
+        <span class="text-muted text-sm">Branch: @branchName</span>
+        <span class="text-muted text-sm">Cashier: @(WebAuth.CurrentUser?.Username ?? "Admin")</span>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 430px;gap:16px;" @onkeydown="HandleKeyboard">
+    <div>
+        <div class="card mb-3">
+            <div class="d-flex gap-2 mb-3">
+                <input @ref="scannerInput" type="text" class="form-control" placeholder="Scan barcode / enter barcode / search name or SKU..." @bind="searchQuery" @bind:event="oninput" @onkeydown="HandleSearchKey" autofocus />
+                <button class="btn btn-outline" @onclick="FocusScanner">Scan</button>
+            </div>
+            <div class="d-flex gap-2 mb-3 text-sm">
+                <span class="badge badge-blue">USB scanners supported as keyboard input</span>
+                <span class="text-muted">F2 Scan · F4 Customer · F8 Hold · F9 Complete · Esc Clear</span>
+            </div>
+            <div class="table-wrap" style="max-height:390px;overflow-y:auto;">
+                <table><thead><tr><th>Product</th><th>Stock</th><th>Price</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var p in filteredProducts)
+                {
+                    <tr><td class="fw-600">@p.Name<br/><span class="text-muted text-sm">SKU: @p.Sku · @p.Barcode</span></td><td><span class="badge @(p.Quantity <= p.MinimumStock ? "badge-red" : "badge-green")">@p.Quantity</span></td><td class="fw-600">Rs @p.SalePrice.ToString("N2")</td><td><button class="btn btn-primary btn-sm" @onclick="() => AddToCart(p)" disabled="@(p.Quantity <= 0)">Add</button></td></tr>
+                }
+                </tbody></table>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header d-flex justify-between"><span>Held Sales</span><span class="text-muted text-sm">@heldSales.Count on this branch</span></div>
+            @if (!heldSales.Any()) { <div class="text-muted text-sm">No held sales.</div> }
+            else { <div class="table-wrap"><table><thead><tr><th>Label</th><th>Items</th><th>Time</th><th></th></tr></thead><tbody>@foreach (var h in heldSales) { <tr><td>@h.Label</td><td>@h.Items.Count</td><td>@h.HeldAtUtc.ToLocalTime().ToString("dd MMM hh:mm tt")</td><td><button class="btn btn-outline btn-sm" @onclick="() => ResumeSale(h.Guid)">Resume</button> <button class="btn btn-ghost btn-sm" @onclick="() => DeleteHeld(h.Guid)">Delete</button></td></tr> }</tbody></table></div> }
+        </div>
+    </div>
+
+    <div class="card" style="position:sticky;top:0;height:max-content;">
+        <div class="card-header">Current Sale</div>
+        @if (showCustomerField) { <div class="form-group"><label>Customer</label><select id="pos-customer" class="form-control form-control-sm" @bind="selectedCustomerGuid"><option value="">Walk-in Customer</option>@foreach (var c in customers) { <option value="@c.Guid">@c.Name (@(c.Phone ?? ""))</option> }</select></div> }
+        @if (cartItems.Any())
+        {
+            <div class="table-wrap mb-3" style="max-height:250px;overflow-y:auto;"><table><thead><tr><th>Item</th><th>Qty</th><th>Disc</th><th>Total</th><th></th></tr></thead><tbody>
+            @foreach (var item in cartItems)
+            { <tr class="@(ReferenceEquals(item, SelectedCartItem) ? "table-row-selected" : "")" @onclick="() => SelectCartItem(item)"><td style="font-size:12px;">@item.ProductName<br/><span class="text-muted">Rs @item.UnitPrice.ToString("N2")</span></td><td><input class="form-control form-control-sm" style="width:58px" type="number" min="1" max="@item.MaxStock" @bind="item.Quantity" @bind:event="oninput" /></td><td><input class="form-control form-control-sm" style="width:65px" type="number" min="0" @bind="item.Discount" @bind:event="oninput" /></td><td class="fw-600">Rs @item.Total.ToString("N2")</td><td><button class="btn btn-ghost btn-sm" @onclick="() => RemoveFromCart(item)">&#10005;</button></td></tr> }
+            </tbody></table></div>
+        }
+        <div class="d-flex gap-2 mb-2"><input class="form-control form-control-sm" type="number" min="0" placeholder="Invoice discount" @bind="discount" @bind:event="oninput" /><span class="text-muted text-sm" style="align-self:center">Discount</span></div>
+        <div class="d-flex justify-between text-sm"><span>Subtotal</span><b>Rs @subTotal.ToString("N2")</b></div>
+        <div class="d-flex justify-between text-sm"><span>Tax (@taxRate.ToString("N2")%)</span><b>Rs @tax.ToString("N2")</b></div>
+        <div class="d-flex justify-between" style="font-size:18px;border-top:1px solid #e2e8f0;padding-top:8px;margin-top:8px"><b>Total</b><b style="color:#4f46e5">Rs @grandTotal.ToString("N2")</b></div>
+        <div class="form-group mt-3"><label>Payment</label><select class="form-control form-control-sm" @bind="paymentMode"><option>Cash</option><option>Card</option><option>Bank Transfer</option><option>Split</option><option>Credit</option></select></div>
+        @if (paymentMode == "Split")
+        { <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><input class="form-control form-control-sm" type="number" min="0" placeholder="Cash" @bind="cashAmount" /><input class="form-control form-control-sm" type="number" min="0" placeholder="Card/Bank" @bind="otherAmount" /></div> }
+        else if (paymentMode != "Credit") { <input class="form-control form-control-sm" type="number" min="0" placeholder="Amount received" @bind="paidAmount" /> }
+        @if (paymentMode == "Cash" && paidAmount >= grandTotal && grandTotal > 0) { <div class="text-sm mt-2">Change: <b>Rs @((paidAmount-grandTotal).ToString("N2"))</b></div> }
+        <div class="d-flex gap-2 mt-3"><button class="btn btn-outline" style="flex:1" @onclick="HoldCurrentSale">Hold</button><button class="btn btn-success" style="flex:2;justify-content:center" @onclick="CompleteSale">Complete · Rs @grandTotal.ToString("N2")</button></div>
+        @if (!string.IsNullOrWhiteSpace(message)) { <div class="mt-2" style="padding:9px;border-radius:6px;font-size:12px;background:@(success ? "#d1fae5" : "#fee2e2");color:@(success ? "#065f46" : "#991b1b")">@message</div> }
+        @if (lastInvoice != null && success) { <button class="btn btn-outline mt-2" style="width:100%" @onclick="PrintInvoice">Print Invoice</button> }
+    </div>
+</div>
+
+@code {
+    private ElementReference scannerInput;
+    private List<Product> allProducts = new(); private List<Customer> customers = new(); private List<HeldSale> heldSales = new();
+    private List<CartItem> cartItems = new(); private string searchQuery = ""; private string selectedCustomerGuid = ""; private string paymentMode = "Cash";
+    private decimal discount, paidAmount, cashAmount, otherAmount, taxRate; private string branchName = "Main Branch", message = ""; private bool success; private Invoice? lastInvoice;
+    private bool focusScannerAfterScan;
+    private IEnumerable<Product> filteredProducts => string.IsNullOrWhiteSpace(searchQuery) ? allProducts.Take(100) : allProducts.Where(p => p.Name.Contains(searchQuery,StringComparison.OrdinalIgnoreCase) || (p.Sku??"").Contains(searchQuery,StringComparison.OrdinalIgnoreCase) || (p.Barcode??"").Contains(searchQuery,StringComparison.OrdinalIgnoreCase)).Take(100);
+    private bool showCustomerField = true;
+    private CartItem? SelectedCartItem;
+    private decimal subTotal => cartItems.Sum(x => x.Total); private decimal taxable => Math.Max(0, subTotal-discount); private decimal tax => taxable*taxRate/100m; private decimal grandTotal => taxable+tax;
+    protected override void OnInitialized() { var u=WebAuth.CurrentUser; if(u==null)return; allProducts=ProductService.GetVisible(u); customers=CustomerService.GetAll(); var branch=u.PrimaryBranchId??1; heldSales=HeldSaleService.GetOpen(branch); using var db=new LocalDbContext(); var settings=db.CompanySettings.FirstOrDefault(); branchName=db.Branches.FirstOrDefault(x=>x.Id==branch)?.Name??"Main Branch"; taxRate=settings?.TaxRatePercent??17; showCustomerField=settings?.ShowCustomerField??true; if(!showCustomerField)selectedCustomerGuid=""; }
+    private string lastScanToken = "";
+    protected override void OnParametersSet() => ProcessUrlScan();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var changed = ProcessUrlScan();
+        if (firstRender || focusScannerAfterScan)
+        {
+            focusScannerAfterScan = false;
+            await FocusScanner();
+        }
+        if (changed) await InvokeAsync(StateHasChanged);
+    }
+    private string GetQueryValue(string key){var query=Nav.ToAbsoluteUri(Nav.Uri).Query;foreach(var part in query.TrimStart('?').Split('&',StringSplitOptions.RemoveEmptyEntries)){var pair=part.Split('=',2);if(pair.Length==2&&pair[0].Equals(key,StringComparison.OrdinalIgnoreCase))return Uri.UnescapeDataString(pair[1]);}return "";}
+    private async Task HandleSearchKey(KeyboardEventArgs e) { if(e.Key=="Enter" && !string.IsNullOrWhiteSpace(searchQuery)){ AddBarcodeToCart(searchQuery); searchQuery=""; await FocusScanner(); } }
+    private static string NormalizeScanCode(string value) => value.Trim().Trim('\'', '"');
+    private bool ProcessUrlScan()
+    {
+        var scanToken = GetQueryValue("scan");
+        var barcode = GetQueryValue("barcode");
+        var scanMarker = string.IsNullOrWhiteSpace(scanToken) ? barcode : scanToken;
+        if (string.IsNullOrWhiteSpace(barcode) || string.Equals(scanMarker, lastScanToken, StringComparison.Ordinal) || allProducts.Count == 0) return false;
+        if (!AddBarcodeToCart(barcode)) return false;
+        lastScanToken = scanMarker;
+        searchQuery = "";
+        focusScannerAfterScan = true;
+        return true;
+    }
+    private bool AddBarcodeToCart(string value) { var code=NormalizeScanCode(value); var p=allProducts.FirstOrDefault(x=>string.Equals(NormalizeScanCode(x.Barcode??""),code,StringComparison.OrdinalIgnoreCase) || string.Equals(NormalizeScanCode(x.Sku??""),code,StringComparison.OrdinalIgnoreCase) || string.Equals(x.Name.Trim(),code,StringComparison.OrdinalIgnoreCase)); if(p!=null){AddToCart(p);return true;} message=$"Product not found: {code}"; success=false; return false; }
+    private async Task FocusScanner(){ await JS.InvokeVoidAsync("eval", "document.querySelector('input[placeholder^=\\\"Scan barcode\\\"]').focus()"); }
+    private async Task HandleKeyboard(KeyboardEventArgs e)
+    {
+        if (e.Key == "F2") await FocusScanner();
+        else if (e.Key == "F4" && showCustomerField) await JS.InvokeVoidAsync("eval", "document.getElementById('pos-customer')?.focus()");
+        else if (e.Key == "F8") await HoldCurrentSale();
+        else if (e.Key == "F9" || (e.Key == "Enter" && e.CtrlKey)) await CompleteSale();
+        else if (e.Key == "Escape") await ClearSaleWithConfirmation();
+        else if (e.Key == "+" || e.Key == "=") AdjustSelectedQuantity(1);
+        else if (e.Key == "-") AdjustSelectedQuantity(-1);
+        else if (e.Key == "Delete") RemoveSelectedCartItem();
+    }
+    private void AddToCart(Product p){if(p.Quantity<=0){message=$"Stock insufficient for {p.Name}";success=false;return;} var x=cartItems.FirstOrDefault(i=>i.ProductGuid==p.Guid); if(x==null){x=new CartItem{ProductGuid=p.Guid,ProductName=p.Name,UnitPrice=p.SalePrice,Quantity=1,MaxStock=p.Quantity};cartItems.Add(x);} else if(x.Quantity<p.Quantity)x.Quantity++; else {message=$"Stock insufficient for {p.Name}";success=false;return;} SelectedCartItem=x; message="";}
+    private void SelectCartItem(CartItem item)=>SelectedCartItem=item;
+    private void AdjustSelectedQuantity(int amount){if(SelectedCartItem==null)return; var next=SelectedCartItem.Quantity+amount;if(next<1){RemoveSelectedCartItem();return;}if(next>SelectedCartItem.MaxStock){message=$"Stock insufficient for {SelectedCartItem.ProductName}";success=false;return;}SelectedCartItem.Quantity=next;}
+    private void RemoveSelectedCartItem(){if(SelectedCartItem==null)return;cartItems.Remove(SelectedCartItem);SelectedCartItem=null;}
+    private void RemoveFromCart(CartItem x){cartItems.Remove(x);if(ReferenceEquals(SelectedCartItem,x))SelectedCartItem=null;}
+    private async Task ClearSaleWithConfirmation(){if(!cartItems.Any()){searchQuery="";message="";await FocusScanner();return;}if(await JS.InvokeAsync<bool>("confirm","Clear current sale?")){cartItems.Clear();SelectedCartItem=null;selectedCustomerGuid="";discount=paidAmount=cashAmount=otherAmount=0;paymentMode="Cash";message="";success=false;await FocusScanner();}}
+    private async Task HoldCurrentSale(){if(!cartItems.Any()){message="Cart is empty";success=false;await FocusScanner();return;}var u=WebAuth.CurrentUser; if(u==null)return; var h=HeldSaleService.Save(new HeldSale{BranchId=u.PrimaryBranchId??1,CustomerGuid=string.IsNullOrWhiteSpace(selectedCustomerGuid)?null:Guid.Parse(selectedCustomerGuid),Discount=discount,Tax=tax,Label=$"Sale {DateTime.Now:HH:mm:ss}",HeldBy=u.Username,Items=cartItems.Select(x=>new HeldSaleItem{ProductGuid=x.ProductGuid,ProductName=x.ProductName,Quantity=x.Quantity,UnitPrice=x.UnitPrice}).ToList()}); cartItems.Clear();SelectedCartItem=null; discount=0; message=$"Sale held: {h.Label}"; success=true; heldSales=HeldSaleService.GetOpen(u.PrimaryBranchId??1);await FocusScanner();}
+    private void ResumeSale(Guid id){var h=HeldSaleService.Take(id); if(h==null)return; cartItems=h.Items.Select(x=>new CartItem{ProductGuid=x.ProductGuid,ProductName=x.ProductName,UnitPrice=x.UnitPrice,Quantity=x.Quantity,MaxStock=ProductService.GetByGuid(x.ProductGuid)?.Quantity??0}).ToList(); selectedCustomerGuid=h.CustomerGuid?.ToString()??""; discount=h.Discount; message="Held sale resumed."; success=true; heldSales=HeldSaleService.GetOpen(WebAuth.CurrentUser?.PrimaryBranchId??1);}
+    private void DeleteHeld(Guid id){HeldSaleService.Delete(id); heldSales=HeldSaleService.GetOpen(WebAuth.CurrentUser?.PrimaryBranchId??1);}
+    private async Task CompleteSale(){try{if(!cartItems.Any()){message="Cart is empty";success=false;await FocusScanner();return;}var u=WebAuth.CurrentUser; if(u==null)return; if(paymentMode=="Credit" && string.IsNullOrWhiteSpace(selectedCustomerGuid)){message="Credit sale requires a customer.";success=false;return;} if(paymentMode=="Cash" && paidAmount<grandTotal){message="Payment amount is less than total";success=false;return;} if(paymentMode=="Split" && cashAmount+otherAmount<grandTotal){message="Payment amount is less than total";success=false;return;} var inv=new Invoice{CustomerGuid=string.IsNullOrWhiteSpace(selectedCustomerGuid)?Guid.Empty:Guid.Parse(selectedCustomerGuid),SubTotal=subTotal,Discount=discount,Tax=tax,TaxRatePercent=taxRate,GrandTotal=grandTotal,PaidAmount=paymentMode=="Credit"?0:(paymentMode=="Split"?cashAmount+otherAmount:paidAmount),Status=paymentMode=="Credit"?"Unpaid":((paymentMode=="Split"?cashAmount+otherAmount:paidAmount)>=grandTotal?"Paid":"Partial"),PaymentStatus=paymentMode=="Credit"?"Unpaid":"Paid",SaleType=paymentMode=="Credit"?"Credit":"Cash",Items=cartItems.Select(x=>new InvoiceItem{ProductGuid=x.ProductGuid,ProductName=x.ProductName,Quantity=x.Quantity,UnitPrice=x.UnitPrice,Total=x.Total}).ToList()}; var pays=new List<SalePayment>(); if(paymentMode=="Split"){if(cashAmount>0)pays.Add(new SalePayment{Method="Cash",Amount=cashAmount});if(otherAmount>0)pays.Add(new SalePayment{Method="Card/Bank",Amount=otherAmount});}else if(paymentMode!="Credit")pays.Add(new SalePayment{Method=paymentMode,Amount=paidAmount}); InvoiceService.Create(inv,"web",u,pays); lastInvoice=inv; cartItems.Clear();SelectedCartItem=null;discount=paidAmount=cashAmount=otherAmount=0;paymentMode="Cash";allProducts=ProductService.GetVisible(u);message=$"Sale completed: {inv.InvoiceNumber}";success=true;await FocusScanner();}catch(InvalidOperationException ex){message=ex.Message;success=false;}catch(Exception){message="Unable to complete sale. Please try again.";success=false;}}
+    private async Task PrintInvoice(){if(lastInvoice==null)return;using var db=new LocalDbContext();var c=db.Customers.FirstOrDefault(x=>x.Guid==lastInvoice.CustomerGuid);var items=db.InvoiceItems.Where(x=>x.InvoiceGuid==lastInvoice.Guid).ToList();var s=db.CompanySettings.FirstOrDefault();await JS.InvokeVoidAsync("openInvoicePrint",InvoicePrintHelper.BuildInvoiceHtml(lastInvoice,items,c,s?.CompanyName??"POS System",s?.Address??"",s?.TaxNumber??""));}
+    private sealed class CartItem{public Guid ProductGuid{get;set;} public string ProductName{get;set;}="";public decimal UnitPrice{get;set;}public decimal Quantity{get;set;}public decimal Discount{get;set;}public int MaxStock{get;set;}public decimal Total=>Math.Max(0,(UnitPrice*Quantity)-Discount);}
+}

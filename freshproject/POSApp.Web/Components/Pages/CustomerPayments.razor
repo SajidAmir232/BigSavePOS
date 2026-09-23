@@ -1,0 +1,125 @@
+@page "/customer-payments"
+@rendermode InteractiveServer
+@inject CustomerService CustomerService
+@inject CustomerPaymentService PaymentService
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">Customer Payments</h2>
+    <button class="btn btn-primary btn-sm" @onclick="ShowAddForm">+ Record Payment</button>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Customer</th><th>Amount</th><th>Date</th><th>Note</th><th>Action</th></tr></thead>
+            <tbody>
+                @foreach (var p in payments)
+                {
+                    <tr>
+                        <td class="fw-600">@(customers.FirstOrDefault(c => c.Guid == p.CustomerGuid)?.Name ?? "Unknown")</td>
+                        <td class="fw-600" style="color:#10b981;">Rs@(p.Amount.ToString("N0"))</td>
+                        <td>@p.PaymentDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(p.Note ?? "-")</td>
+                        <td><button class="btn btn-ghost btn-sm" @onclick="() => DeletePayment(p.Id)">Delete</button></td>
+                    </tr>
+                }
+                @if (!payments.Any())
+                {
+                    <tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px;">No payments recorded</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (showForm)
+{
+    <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;" @onclick="CloseForm">
+        <div class="card" style="width:400px;" @onclick:stopPropagation="true">
+            <div class="card-header">Record Customer Payment</div>
+            <div class="form-group">
+                <label>Customer</label>
+                <select class="form-control form-control-sm" @bind="formCustomerGuid">
+                    <option value="">-- Select Customer --</option>
+                    @foreach (var c in customers)
+                    {
+                        <option value="@c.Guid">@c.Name@(c.CurrentBalance > 0 ? $" (Balance: Rs{c.CurrentBalance:N0})" : "")</option>
+                    }
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Amount (Rs)</label>
+                <input type="number" class="form-control form-control-sm" @bind="formAmount" min="1" />
+            </div>
+            <div class="form-group">
+                <label>Note</label>
+                <input class="form-control form-control-sm" @bind="formNote" placeholder="Optional note" />
+            </div>
+            <div class="d-flex gap-2" style="justify-content:flex-end;">
+                <button class="btn btn-ghost btn-sm" @onclick="CloseForm">Cancel</button>
+                <button class="btn btn-success btn-sm" @onclick="SavePayment">Save Payment</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CustomerPayment> payments = new();
+    private List<Customer> customers = new();
+    private bool showForm;
+    private string formCustomerGuid = "";
+    private decimal formAmount;
+    private string formNote = "";
+
+    protected override void OnInitialized()
+    {
+        LoadData();
+    }
+
+    private void LoadData()
+    {
+        payments = PaymentService.GetAllPayments();
+        customers = CustomerService.GetAll();
+    }
+
+    private void ShowAddForm()
+    {
+        formCustomerGuid = "";
+        formAmount = 0;
+        formNote = "";
+        showForm = true;
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private void SavePayment()
+    {
+        if (string.IsNullOrEmpty(formCustomerGuid) || formAmount <= 0) return;
+
+        var payment = new CustomerPayment
+        {
+            CustomerGuid = Guid.Parse(formCustomerGuid),
+            Amount = formAmount,
+            PaymentDate = DateTime.Now,
+            Note = formNote
+        };
+
+        PaymentService.AddPayment(payment);
+
+        var customer = customers.FirstOrDefault(c => c.Guid == payment.CustomerGuid);
+        if (customer != null)
+        {
+            customer.CurrentBalance -= formAmount;
+            CustomerService.Save(customer);
+        }
+
+        showForm = false;
+        LoadData();
+    }
+
+    private void DeletePayment(int id)
+    {
+        PaymentService.DeletePayment(id);
+        LoadData();
+    }
+}

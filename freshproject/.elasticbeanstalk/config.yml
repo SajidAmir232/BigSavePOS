@@ -1,0 +1,21 @@
+branch-default:
+  environment: kalia-pos-env
+  group_suffix: null
+global:
+  application_name: kalia-pos-app
+  branch: null
+  default_ec2_keyname: null
+  default_platform: Docker running on 64bit Amazon Linux 2023
+  default_region: ap-south-1
+  include_git_subdirectories: null
+  instance_type: t3.micro
+  platform_name: null
+  platform_version: latest
+  profile: null
+  repository: null
+  sc: git
+  service_role: awseb-service-role
+  shotgun_attempts: 3
+  shutdown: false
+  source_control: null
+  workspace_type: Application

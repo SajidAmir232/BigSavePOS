@@ -1,0 +1,8 @@
+@page "/backup"
+@rendermode InteractiveServer
+@inject DatabaseBackupService BackupService
+@inject WebAuthService WebAuth
+@inject IJSRuntime JS
+<h2 style="font-size:16px;font-weight:600;">Database Backup</h2>
+@if(WebAuth.CurrentUser?.Role != "Admin"){<div class="card">Only Admin users can access database backup and restore.</div>}else{<div class="card mb-3"><div class="card-header">Manual Backup</div><p class="text-muted text-sm">Creates a complete SQLite database snapshot. A safety copy is created automatically before restore.</p><button class="btn btn-primary" @onclick="CreateBackup">Create Backup</button>@if(!string.IsNullOrEmpty(message)){<div class="mt-2 text-sm">@message</div>}</div><div class="card"><div class="card-header">Backup History</div><table><thead><tr><th>File</th><th>Created</th><th>Size</th></tr></thead><tbody>@foreach(var f in files){<tr><td>@f.Name</td><td>@f.LastWriteTime.ToString("dd MMM yyyy hh:mm tt")</td><td>@((f.Length/1024d/1024d).ToString("N2")) MB</td></tr>}</tbody></table></div>}
+@code{private List<FileInfo> files=new();private string message="";protected override void OnInitialized(){if(WebAuth.CurrentUser?.Role=="Admin")Load();}private void Load(){files=BackupService.History(WebAuth.CurrentUser!);}private async Task CreateBackup(){try{var path=BackupService.Backup(WebAuth.CurrentUser!);message=$"Backup created: {path}";Load();}catch(Exception ex){message=ex.Message;}}}

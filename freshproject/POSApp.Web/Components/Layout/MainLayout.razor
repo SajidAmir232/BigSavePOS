@@ -1,0 +1,159 @@
+﻿@inherits LayoutComponentBase
+@inject WebAuthService WebAuth
+@inject NavigationManager Nav
+@inject OfflineSyncService OfflineSync
+@inject ProductService ProductService
+@inject IJSRuntime JS
+@implements IDisposable
+
+@if (!WebAuth.IsLoggedIn && !IsPublicPage)
+{
+    <POSApp.Web.Components.Pages.Login />
+}
+else if (!WebAuth.IsLoggedIn && IsPublicPage)
+{
+    @Body
+}
+else
+{
+    <div class="page">
+        <div class="sidebar">
+            <div class="brand">
+                <span class="brand-mark">P</span>
+                <span>POS System</span>
+                <small>Sales & Inventory</small>
+            </div>
+            <nav>
+                <div class="nav-section-title">Overview</div>
+                <NavLink href="" Match="NavLinkMatch.All" class="nav-link">
+                    <span class="icon">&#9632;</span> <span>Dashboard</span>
+                </NavLink>
+
+                <div class="nav-section-title">Sales</div>
+                <NavLink href="pos" class="nav-link nav-link-primary">
+                    <span class="icon">&#9733;</span> <span>New Sale</span>
+                </NavLink>
+                <NavLink href="sales" class="nav-link">
+                    <span class="icon">&#9776;</span> <span>Sales History</span>
+                </NavLink>
+                <NavLink href="sales-returns" class="nav-link">
+                    <span class="icon">&#8634;</span> <span>Sales Returns</span>
+                </NavLink>
+
+                <div class="nav-section-title">Inventory</div>
+                <NavLink href="products" class="nav-link">
+                    <span class="icon">&#9733;</span> <span>Products</span>
+                </NavLink>
+                <NavLink href="barcode-generator" class="nav-link">
+                    <span class="icon">&#9641;</span> <span>Barcode Generator</span>
+                </NavLink>
+                <NavLink href="purchases" class="nav-link">
+                    <span class="icon">&#9830;</span> <span>Purchases</span>
+                </NavLink>
+
+                <div class="nav-section-title">Contacts</div>
+                <NavLink href="customers" class="nav-link">
+                    <span class="icon">&#9787;</span> <span>Customers</span>
+                </NavLink>
+                <NavLink href="suppliers" class="nav-link">
+                    <span class="icon">&#9881;</span> <span>Suppliers</span>
+                </NavLink>
+                <NavLink href="customer-ledger" class="nav-link">
+                    <span class="icon">&#9787;</span> <span>Customer Ledger</span>
+                </NavLink>
+
+                <div class="nav-section-title">Tools</div>
+                <NavLink href="reports" class="nav-link">
+                    <span class="icon">&#9776;</span> <span>Reports</span>
+                </NavLink>
+                <NavLink href="data-tools" class="nav-link">
+                    <span class="icon">&#8645;</span> <span>Data Tools</span>
+                </NavLink>
+                <NavLink href="settings" class="nav-link">
+                    <span class="icon">&#9881;</span> <span>Settings</span>
+                </NavLink>
+                @if (WebAuth.CurrentUser?.Role == "Admin")
+                {
+                    <div class="nav-section-title">Administration</div>
+                    <NavLink href="admin" class="nav-link"><span class="icon">&#9733;</span> <span>Admin Panel</span></NavLink>
+                    <NavLink href="branches" class="nav-link"><span class="icon">&#127970;</span> <span>Branches</span></NavLink>
+                    <NavLink href="backup" class="nav-link"><span class="icon">&#128190;</span> <span>Backup</span></NavLink>
+                }
+            </nav>
+        </div>
+
+        <main>
+            <div class="topbar">
+                <h1>@(PageTitle ?? "POS Dashboard")</h1>
+                <div class="user-info" style="display:flex;align-items:center;gap:12px;">
+                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 10px;border-radius:20px;background:@(OfflineSync.IsOnline ? "#d1fae5" : "#fee2e2");color:@(OfflineSync.IsOnline ? "#065f46" : "#991b1b");font-weight:600;">
+                        <span style="width:6px;height:6px;border-radius:50%;background:@(OfflineSync.IsOnline ? "#10b981" : "#ef4444");display:inline-block;"></span>
+                        @(OfflineSync.IsOnline ? "Online" : "Offline")
+                    </span>
+                    @(WebAuth.CurrentUser?.Username ?? "Admin") | @(WebAuth.CurrentUser?.Role ?? "Admin")
+                    <button class="btn btn-primary btn-sm" @onclick="OpenNewSale">+ New Sale</button>
+                    <button class="btn btn-ghost btn-sm" style="margin-left:8px;font-size:11px;" @onclick="Logout">Logout</button>
+                </div>
+            </div>
+            <div class="content">
+                @Body
+            </div>
+        </main>
+    </div>
+}
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">&#10005;</a>
+</div>
+
+@code {
+    [CascadingParameter]
+    private string? PageTitle { get; set; }
+
+    private bool IsPublicPage => Nav.Uri.Contains("/login") || Nav.Uri.Contains("/forgot-password") || Nav.Uri.Contains("/signup");
+    private DotNetObjectReference<MainLayout>? scannerReference;
+
+    protected override void OnInitialized()
+    {
+        WebAuth.OnAuthStateChanged += StateHasChanged;
+        OfflineSync.OnSyncStateChanged += StateHasChanged;
+        _ = OfflineSync.InitializeAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        scannerReference = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("globalScanner.attach", scannerReference);
+        await JS.InvokeVoidAsync("posSidebar.init");
+    }
+
+    public void Dispose()
+    {
+        WebAuth.OnAuthStateChanged -= StateHasChanged;
+        OfflineSync.OnSyncStateChanged -= StateHasChanged;
+        scannerReference?.Dispose();
+    }
+
+    [JSInvokable]
+    public Task HandleGlobalBarcode(string barcode)
+    {
+        var user = WebAuth.CurrentUser;
+        if (user == null) return Task.CompletedTask;
+        Nav.NavigateTo($"/pos?barcode={Uri.EscapeDataString(barcode.Trim())}&scan={Guid.NewGuid():N}", replace: true);
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task HandleGlobalShortcut() { OpenNewSale(); return Task.CompletedTask; }
+
+    private void OpenNewSale() => Nav.NavigateTo("/pos");
+
+    private void Logout()
+    {
+        WebAuth.Logout();
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+}

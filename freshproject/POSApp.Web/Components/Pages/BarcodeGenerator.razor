@@ -1,0 +1,49 @@
+@page "/barcode-generator"
+@rendermode InteractiveServer
+@using POSApp.Data.Models
+@inject ProductService ProductService
+@inject WebAuthService WebAuth
+@inject IJSRuntime JS
+
+<div class="d-flex align-center justify-between mb-4">
+    <div><h2 style="font-size:16px;font-weight:600;">Barcode Generator</h2><div class="text-muted text-sm">Create and print Code 128 labels for products.</div></div>
+</div>
+
+<div class="card" style="max-width:680px;">
+    <div class="form-group"><label>Product</label><select class="form-control" @bind="selectedGuid" @bind:after="LoadSelected"><option value="">Manual barcode</option>@foreach (var product in products) { <option value="@product.Guid">@product.Name - @(product.Barcode ?? "No barcode")</option> }</select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group"><label>Barcode</label><input class="form-control" data-barcode-generator-input @bind="barcode" autocomplete="off" /></div>
+        <div class="form-group"><label>Product name</label><input class="form-control" @bind="productName" autocomplete="off" /></div>
+        <div class="form-group"><label>Price</label><input class="form-control" type="number" min="0" @bind="price" /></div>
+        <div class="form-group"><label>Copies</label><input class="form-control" type="number" min="1" max="100" @bind="copies" /></div>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(message)) { <div class="mt-2 text-sm">@message</div> }
+    <div class="d-flex gap-2 mt-3"><button class="btn btn-primary" @onclick="Generate">Generate and Print</button><button class="btn btn-outline" @onclick="Clear">Clear</button></div>
+</div>
+
+@code {
+    private List<Product> products = new();
+    private string selectedGuid = "", barcode = "", productName = "", message = "";
+    private decimal price;
+    private int copies = 1;
+
+    protected override void OnInitialized() => products = ProductService.GetVisible(WebAuth.CurrentUser!);
+    private void LoadSelected()
+    {
+        var product = products.FirstOrDefault(x => x.Guid.ToString() == selectedGuid);
+        if (product == null) return;
+        barcode = product.Barcode ?? product.Sku ?? "";
+        productName = product.Name;
+        price = product.SalePrice;
+    }
+    private async Task Generate()
+    {
+        barcode = barcode.Trim();
+        if (string.IsNullOrWhiteSpace(barcode)) { message = "Enter or select a barcode first."; return; }
+        if (copies < 1) copies = 1;
+        if (copies > 100) copies = 100;
+        await JS.InvokeVoidAsync("openBarcodePrint", productName.Trim(), barcode, price.ToString("N2"), copies);
+        message = "Barcode print window opened.";
+    }
+    private void Clear() { selectedGuid = barcode = productName = message = ""; price = 0; copies = 1; }
+}

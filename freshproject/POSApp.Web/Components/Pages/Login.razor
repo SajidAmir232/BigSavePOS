@@ -1,0 +1,67 @@
+@page "/login"
+@rendermode InteractiveServer
+@inject WebAuthService WebAuth
+@inject AuthService AuthService
+@inject NavigationManager Nav
+
+<div class="login-page">
+    <div class="login-card">
+        <h2>POS System</h2>
+        <div class="subtitle">Sign in to your account</div>
+
+        @if (!string.IsNullOrEmpty(error))
+        {
+            <div class="error">@error</div>
+        }
+
+        <div class="form-group">
+            <label>Username or Email</label>
+            <input class="form-control" @bind="username" @bind:event="oninput" placeholder="Enter username or email" autocomplete="username" />
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input class="form-control" type="password" @bind="password" @bind:event="oninput" placeholder="Enter password" autocomplete="current-password" @onkeydown="HandleKeyDown" />
+        </div>
+        <button class="btn btn-primary" @onclick="DoLogin">Sign In</button>
+        <div style="margin-top:12px;text-align:center;">
+            <a href="/forgot-password" style="font-size:12px;color:#4f46e5;text-decoration:none;">Forgot Password?</a>
+        </div>
+        <div style="margin-top:12px;text-align:center;font-size:12px;color:#64748b;">
+            Don't have an account? <a href="/signup" style="color:#4f46e5;text-decoration:none;">Sign Up</a>
+        </div>
+        <div style="margin-top:8px;text-align:center;font-size:11px;color:#94a3b8;">
+            Default demo: admin / admin123
+        </div>
+    </div>
+</div>
+
+@code {
+    private string username = "";
+    private string password = "";
+    private string error = "";
+
+    private void DoLogin()
+    {
+        error = "";
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        {
+            error = "Please enter username and password.";
+            return;
+        }
+
+        var (success, message) = WebAuth.Login(username, password, AuthService);
+        if (success)
+        {
+            Nav.NavigateTo("/");
+        }
+        else
+        {
+            error = message;
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") DoLogin();
+    }
+}

@@ -1,0 +1,261 @@
+@page "/admin"
+@rendermode InteractiveServer
+@inject AuthService AuthService
+@inject WebAuthService WebAuth
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">Admin Panel - User Management</h2>
+    <button class="btn btn-primary btn-sm" @onclick="ShowAddUser">+ Add User</button>
+</div>
+
+<div class="sg" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px;">
+    <div class="sc sc-g" style="background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:16px 20px;border-top:3px solid #10b981;">
+        <div class="label" style="font-size:12px;color:#64748b;">Total Users</div>
+        <div class="value" style="font-size:22px;font-weight:700;color:#10b981;">@users.Count</div>
+    </div>
+    <div class="sc sc-b" style="background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:16px 20px;border-top:3px solid #4f46e5;">
+        <div class="label" style="font-size:12px;color:#64748b;">Active Users</div>
+        <div class="value" style="font-size:22px;font-weight:700;color:#4f46e5;">@users.Count(u => u.IsActive && u.IsSubscriptionActive)</div>
+    </div>
+    <div class="sc sc-a" style="background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:16px 20px;border-top:3px solid #f59e0b;">
+        <div class="label" style="font-size:12px;color:#64748b;">Expired Subscriptions</div>
+        <div class="value" style="font-size:22px;font-weight:700;color:#f59e0b;">@users.Count(u => u.SubscriptionEndDate.HasValue && u.SubscriptionEndDate.Value < DateTime.UtcNow)</div>
+    </div>
+    <div class="sc sc-r" style="background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:16px 20px;border-top:3px solid #ef4444;">
+        <div class="label" style="font-size:12px;color:#64748b;">Deactivated</div>
+        <div class="value" style="font-size:22px;font-weight:700;color:#ef4444;">@users.Count(u => !u.IsActive)</div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+    <div class="card-header">All Users</div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Subscription</th>
+                    <th>Last Login</th>
+                    <th>Assigned By</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var u in users)
+                {
+                    var subExpired = u.SubscriptionEndDate.HasValue && u.SubscriptionEndDate.Value < DateTime.UtcNow;
+                    <tr style="opacity:@(u.IsActive ? 1 : 0.5)">
+                        <td class="fw-600">@u.Username</td>
+                        <td>@u.Email</td>
+                        <td>
+                            <span class="badge @(u.Role == "Admin" ? "badge-blue" : u.Role == "Manager" ? "badge-amber" : "badge-green")">@u.Role</span>
+                        </td>
+                        <td>
+                            @if (!u.IsActive)
+                            {
+                                <span class="badge badge-red">Deactivated</span>
+                            }
+                            else if (subExpired)
+                            {
+                                <span class="badge badge-red">Expired</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-green">Active</span>
+                            }
+                        </td>
+                        <td>
+                            @if (u.SubscriptionEndDate.HasValue)
+                            {
+                                <span style="color:@(subExpired ? "#ef4444" : "#10b981");font-size:12px;">
+                                    @u.SubscriptionEndDate.Value.ToString("dd MMM yyyy")
+                                    @if (!subExpired)
+                                    {
+                                        <span style="color:#94a3b8;">(@((u.SubscriptionEndDate.Value - DateTime.UtcNow).Days)d left)</span>
+                                    }
+                                </span>
+                            }
+                            else
+                            {
+                                <span style="color:#94a3b8;font-size:12px;">No limit</span>
+                            }
+                        </td>
+                        <td style="font-size:12px;color:#64748b;">@(u.LastLoginAt?.ToString("dd MMM hh:mm tt") ?? "Never")</td>
+                        <td style="font-size:12px;color:#64748b;">@(u.AssignedBy ?? "-")</td>
+                        <td>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-ghost btn-sm" @onclick="() => EditUser(u)">Edit</button>
+                                <button class="btn btn-ghost btn-sm" style="color:@(u.IsActive ? "#ef4444" : "#10b981");" @onclick="() => ToggleActive(u)">
+                                    @(u.IsActive ? "Deactivate" : "Activate")
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                @if (!users.Any())
+                {
+                    <tr><td colspan="8" style="text-align:center;padding:20px;color:#94a3b8;">No users found</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (showForm)
+{
+    <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;" @onclick="CloseForm">
+        <div class="card" style="width:480px;max-height:80vh;overflow-y:auto;" @onclick:stopPropagation="true">
+            <div class="card-header">@(editingUser == null ? "Add New User" : "Edit User: " + editingUser.Username)</div>
+
+            @if (!string.IsNullOrEmpty(formMessage))
+            {
+                <div style="margin-bottom:12px;padding:8px;border-radius:6px;font-size:12px;background:@(formSuccess ? "#d1fae5" : "#fee2e2");color:@(formSuccess ? "#065f46" : "#991b1b");">@formMessage</div>
+            }
+
+            @if (editingUser == null)
+            {
+                <div class="form-group">
+                    <label>Username</label>
+                    <input class="form-control" @bind="formUsername" placeholder="Min 3 characters" />
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input class="form-control" type="email" @bind="formEmail" placeholder="user@example.com" />
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input class="form-control" type="password" @bind="formPassword" placeholder="Min 6 characters" />
+                </div>
+            }
+
+            <div class="form-group">
+                <label>Role</label>
+                <select class="form-control form-control-sm" @bind="formRole">
+                    <option value="Cashier">Cashier</option>
+                    <option value="Manager">Manager</option>
+                    <option value="Admin">Admin</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Subscription Duration</label>
+                <select class="form-control form-control-sm" @bind="formDuration">
+                    <option value="1">1 Month</option>
+                    <option value="3">3 Months</option>
+                    <option value="6">6 Months</option>
+                    <option value="12" selected>1 Year</option>
+                    <option value="0">No Expiry</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Notes (optional)</label>
+                <input class="form-control" @bind="formNotes" placeholder="Admin notes about this user" />
+            </div>
+
+            @if (editingUser != null)
+            {
+                <div class="form-group">
+                    <label>Reset Password</label>
+                    <div class="d-flex gap-2">
+                        <input class="form-control form-control-sm" @bind="formNewPassword" placeholder="New temp password (min 6)" style="flex:1;" />
+                        <button class="btn btn-outline btn-sm" @onclick="ResetPassword">Reset</button>
+                    </div>
+                </div>
+            }
+
+            <div class="d-flex gap-2" style="justify-content:flex-end;margin-top:12px;">
+                <button class="btn btn-ghost btn-sm" @onclick="CloseForm">Cancel</button>
+                <button class="btn btn-primary btn-sm" @onclick="SaveUser">@(editingUser == null ? "Create User" : "Save Changes")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<User> users = new();
+    private bool showForm;
+    private User? editingUser;
+    private string formUsername = "", formEmail = "", formPassword = "", formRole = "Cashier";
+    private string formDuration = "12";
+    private string formNotes = "", formNewPassword = "";
+    private string formMessage = "";
+    private bool formSuccess;
+
+    protected override void OnInitialized()
+    {
+        if (WebAuth.CurrentUser?.Role != "Admin") return;
+        LoadUsers();
+    }
+
+    private void LoadUsers() => users = AuthService.GetAllUsers();
+
+    private void ShowAddUser()
+    {
+        editingUser = null;
+        formUsername = formEmail = formPassword = formNotes = formNewPassword = "";
+        formRole = "Cashier";
+        formDuration = "12";
+        formMessage = "";
+        showForm = true;
+    }
+
+    private void EditUser(User u)
+    {
+        editingUser = u;
+        formUsername = u.Username;
+        formEmail = u.Email;
+        formRole = u.Role;
+        formNotes = u.Notes ?? "";
+        formNewPassword = "";
+        formMessage = "";
+        showForm = true;
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private void SaveUser()
+    {
+        formMessage = "";
+        var adminName = WebAuth.CurrentUser?.Username ?? "Admin";
+
+        if (editingUser == null)
+        {
+            var duration = int.TryParse(formDuration, out var d) ? d : 12;
+            var (ok, msg) = AuthService.AdminCreateUser(formUsername, formEmail, formPassword, formRole, adminName, duration, WebAuth.CurrentUser);
+            formSuccess = ok;
+            formMessage = msg;
+            if (ok) { LoadUsers(); showForm = false; }
+        }
+        else
+        {
+            var (ok, msg) = AuthService.UpdateUserRole(editingUser.Id, formRole, WebAuth.CurrentUser);
+            formSuccess = ok;
+            formMessage = msg;
+
+            if (ok)
+            {
+                var duration = int.TryParse(formDuration, out var d) ? d : 12;
+                AuthService.UpdateSubscription(editingUser.Id, duration, WebAuth.CurrentUser);
+                LoadUsers();
+                showForm = false;
+            }
+        }
+    }
+
+    private void ToggleActive(User u)
+    {
+        AuthService.ToggleUserActive(u.Id, WebAuth.CurrentUser);
+        LoadUsers();
+    }
+
+    private void ResetPassword()
+    {
+        if (editingUser == null || string.IsNullOrWhiteSpace(formNewPassword)) return;
+        var (ok, msg) = AuthService.AdminResetPassword(editingUser.Id, formNewPassword, WebAuth.CurrentUser);
+        formSuccess = ok;
+        formMessage = msg;
+        if (ok) formNewPassword = "";
+    }
+}

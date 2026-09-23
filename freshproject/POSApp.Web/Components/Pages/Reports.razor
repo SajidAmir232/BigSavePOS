@@ -1,0 +1,240 @@
+@page "/reports"
+@rendermode InteractiveServer
+@inject ReportsService ReportsService
+@using POSApp.Data.Services
+
+<div class="d-flex align-center gap-3 mb-4">
+    <div class="form-group mb-0">
+        <label>From</label>
+        <input type="date" class="form-control form-control-sm" @bind="fromDate" />
+    </div>
+    <div class="form-group mb-0">
+        <label>To</label>
+        <input type="date" class="form-control form-control-sm" @bind="toDate" />
+    </div>
+    <button class="btn btn-primary btn-sm" style="margin-top:18px;" @onclick="GenerateReport">Generate</button>
+</div>
+
+<div class="tabs">
+    <div class="tab @(activeTab == "sales" ? "active" : "")" @onclick='() => SetTab("sales")'>Sales Summary</div>
+    <div class="tab @(activeTab == "cashier" ? "active" : "")" @onclick='() => SetTab("cashier")'>By Cashier</div>
+    <div class="tab @(activeTab == "product" ? "active" : "")" @onclick='() => SetTab("product")'>By Product</div>
+    <div class="tab @(activeTab == "stock" ? "active" : "")" @onclick='() => SetTab("stock")'>Stock</div>
+    <div class="tab @(activeTab == "lowstock" ? "active" : "")" @onclick='() => SetTab("lowstock")'>Low Stock</div>
+    <div class="tab @(activeTab == "purchase" ? "active" : "")" @onclick='() => SetTab("purchase")'>Purchase Summary</div>
+    <div class="tab @(activeTab == "receivables" ? "active" : "")" @onclick='() => SetTab("receivables")'>Receivables/Payables</div>
+    <div class="tab @(activeTab == "returns" ? "active" : "")" @onclick='() => SetTab("returns")'>Sales Returns</div>
+</div>
+
+@if (activeTab == "sales")
+{
+    <div class="stat-grid">
+        <div class="stat-card green"><div class="label">Total Sales</div><div class="value">Rs@(salesData.FirstOrDefault(s => s.Metric == "Total Sales Amount")?.Value?.Replace("Rs","") ?? "0")</div></div>
+        <div class="stat-card blue"><div class="label">Invoices</div><div class="value">@(salesData.FirstOrDefault(s => s.Metric == "Total Invoices")?.Value ?? "0")</div></div>
+        <div class="stat-card amber"><div class="label">Avg Sale</div><div class="value">Rs@(salesData.FirstOrDefault(s => s.Metric == "Average Sale Amount")?.Value?.Replace("Rs","") ?? "0")</div></div>
+    </div>
+    <div class="card">
+        <div class="card-header">Daily Sales Trend</div>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>Date</th><th>Sales</th><th>Purchases</th></tr></thead>
+                <tbody>
+                    @foreach (var d in dailyData.Where(d => d.SalesAmount > 0 || d.PurchaseAmount > 0))
+                    {
+                        <tr>
+                            <td>@d.Date.ToString("dd MMM yyyy")</td>
+                            <td class="fw-600" style="color:#4f46e5;">Rs@(d.SalesAmount.ToString("N0"))</td>
+                            <td class="fw-600" style="color:#10b981;">Rs@(d.PurchaseAmount.ToString("N0"))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else if (activeTab == "cashier")
+{
+    <div class="card">
+        <div class="card-header">Sales by Cashier</div>
+        <table>
+            <thead><tr><th>Cashier</th><th>Invoices</th><th>Total Sales</th></tr></thead>
+            <tbody>
+                @foreach (var c in cashierData)
+                {
+                    <tr>
+                        <td class="fw-600">@c.CashierName</td>
+                        <td>@c.InvoiceCount</td>
+                        <td class="fw-600">Rs@c.TotalSales.Replace("Rs","")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else if (activeTab == "product")
+{
+    <div class="card">
+        <div class="card-header">Top Products by Revenue</div>
+        <table>
+            <thead><tr><th>Product</th><th>Category</th><th>Qty Sold</th><th>Revenue</th></tr></thead>
+            <tbody>
+                @foreach (var p in productData.Take(10))
+                {
+                    <tr>
+                        <td class="fw-600">@p.ProductName</td>
+                        <td>@p.Category</td>
+                        <td>@p.Quantity</td>
+                        <td class="fw-600">Rs@p.TotalSales.Replace("Rs","")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else if (activeTab == "stock")
+{
+    <div class="stat-grid">
+        <div class="stat-card green"><div class="label">Total Stock Value</div><div class="value">Rs@(stockData.Sum(s => decimal.TryParse(s.StockValue.Replace("Rs","").Replace(",",""), out var v) ? v : 0).ToString("N0"))</div></div>
+        <div class="stat-card blue"><div class="label">Total Items</div><div class="value">@stockData.Sum(s => int.TryParse(s.CurrentStock, out var v) ? v : 0)</div></div>
+    </div>
+    <div class="card">
+        <div class="card-header">Inventory</div>
+        <table>
+            <thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Stock</th><th>Value</th></tr></thead>
+            <tbody>
+                @foreach (var s in stockData)
+                {
+                    <tr>
+                        <td class="fw-600">@s.ProductName</td>
+                        <td>@s.Sku</td>
+                        <td>@s.Category</td>
+                        <td><span class="badge @(int.TryParse(s.CurrentStock, out var q) && q <= 10 ? "badge-amber" : "badge-green")">@s.CurrentStock</span></td>
+                        <td class="fw-600">@s.StockValue</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else if (activeTab == "lowstock")
+{
+    <div class="card">
+        <div class="card-header">Low Stock / Out of Stock</div>
+        <table>
+            <thead><tr><th>Product</th><th>SKU</th><th>Stock</th><th>Status</th></tr></thead>
+            <tbody>
+                @foreach (var l in lowStockData)
+                {
+                    <tr>
+                        <td class="fw-600">@l.ProductName</td>
+                        <td>@l.Sku</td>
+                        <td class="fw-600">@l.CurrentStock</td>
+                        <td><span class="badge @(l.Status == "Out of Stock" ? "badge-red" : "badge-amber")">@l.Status</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else if (activeTab == "purchase")
+{
+    <div class="card">
+        <div class="card-header">Purchase Summary by Supplier</div>
+        <table>
+            <thead><tr><th>Supplier</th><th>Invoices</th><th>Total Purchase</th></tr></thead>
+            <tbody>
+                @foreach (var p in purchaseData)
+                {
+                    <tr>
+                        <td class="fw-600">@p.SupplierName</td>
+                        <td>@p.InvoiceCount</td>
+                        <td class="fw-600">Rs@p.TotalPurchase.Replace("Rs","")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else if (activeTab == "receivables")
+{
+    <div class="card">
+        <div class="card-header">Receivables & Payables</div>
+        <table>
+            <thead><tr><th>Type</th><th>Total</th><th>Current</th><th>31-60 Days</th><th>61+ Days</th></tr></thead>
+            <tbody>
+                @foreach (var r in receivablesData)
+                {
+                    <tr>
+                        <td class="fw-600">@r.Type</td>
+                        <td class="fw-600">@r.TotalAmount</td>
+                        <td>@r.Current</td>
+                        <td>@r.DaysRange31To60</td>
+                        <td>@r.DaysRange61Plus</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else if (activeTab == "returns")
+{
+    <div class="card">
+        <div class="card-header">Sales Returns</div>
+        <table>
+            <thead><tr><th>Invoice #</th><th>Product</th><th>Qty</th><th>Reason</th><th>Date</th></tr></thead>
+            <tbody>
+                @foreach (var r in returnsData)
+                {
+                    <tr>
+                        <td>@r.InvoiceNumber</td>
+                        <td class="fw-600">@r.ProductName</td>
+                        <td>@r.Quantity</td>
+                        <td>@r.ReturnReason</td>
+                        <td>@r.ReturnDate</td>
+                    </tr>
+                }
+                @if (!returnsData.Any())
+                {
+                    <tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px;">No returns in this period</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private DateTime fromDate = DateTime.Now.AddMonths(-1);
+    private DateTime toDate = DateTime.Now;
+    private string activeTab = "sales";
+
+    private List<ReportsService.SalesSummaryDto> salesData = new();
+    private List<ReportsService.DailySalesDto> dailyData = new();
+    private List<ReportsService.SalesByCashierDto> cashierData = new();
+    private List<ReportsService.SalesByProductDto> productData = new();
+    private List<ReportsService.StockReportDto> stockData = new();
+    private List<ReportsService.LowStockDto> lowStockData = new();
+    private List<ReportsService.PurchaseSummaryDto> purchaseData = new();
+    private List<ReportsService.ReceivablesPayablesSummaryDto> receivablesData = new();
+    private List<ReportsService.SalesReturnDto> returnsData = new();
+
+    protected override void OnInitialized() => GenerateReport();
+
+    private void SetTab(string tab)
+    {
+        activeTab = tab;
+        StateHasChanged();
+    }
+
+    private void GenerateReport()
+    {
+        salesData = ReportsService.GetSalesSummaryReport(fromDate, toDate);
+        dailyData = ReportsService.GetDailySalesData(fromDate, toDate);
+        cashierData = ReportsService.GetSalesByCashierReport(fromDate, toDate);
+        productData = ReportsService.GetSalesByProductReport(fromDate, toDate);
+        stockData = ReportsService.GetStockReportWithValue();
+        lowStockData = ReportsService.GetLowStockReport();
+        purchaseData = ReportsService.GetPurchaseSummaryReport(fromDate, toDate);
+        receivablesData = ReportsService.GetReceivablesPayablesSummaryReport();
+        returnsData = ReportsService.GetSalesReturnReport(fromDate, toDate);
+    }
+}

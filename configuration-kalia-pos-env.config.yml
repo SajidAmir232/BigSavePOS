@@ -1,0 +1,68 @@
+{
+    "AWSConfigurationTemplateVersion": "1.0.0",
+    "ApplicationName": "kalia-pos-app",
+    "Description": "POS Application for client Kalia - .NET 8 + Docker",
+    "EnvironmentConfigurations": {
+        "kalia-pos-env": {
+            "AWSConfigurationTemplateVersion": "1.0.0",
+            "Description": "Production environment for Kalia POS app",
+            "EnvironmentTier": {
+                "Name": "WebServerStandard",
+                "Type": "Standard"
+            },
+            "OptionSettings": [
+                {
+                    "Namespace": "aws:autoscaling:asg",
+                    "OptionName": "MinSize",
+                    "Value": "1"
+                },
+                {
+                    "Namespace": "aws:autoscaling:asg",
+                    "OptionName": "MaxSize",
+                    "Value": "4"
+                },
+                {
+                    "Namespace": "aws:autoscaling:asg",
+                    "OptionName": "Availability Zones",
+                    "Value": "Any 1"
+                },
+                {
+                    "Namespace": "aws:elbv2:loadbalancer",
+                    "OptionName": "IdleTimeout",
+                    "Value": "60"
+                },
+                {
+                    "Namespace": "aws:elasticbeanstalk:environment",
+                    "OptionName": "EnvironmentType",
+                    "Value": "SingleInstance"
+                },
+                {
+                    "Namespace": "aws:elasticbeanstalk:environment",
+                    "OptionName": "LoadBalancerType",
+                    "Value": "application"
+                },
+                {
+                    "Namespace": "aws:elasticbeanstalk:application:environment",
+                    "OptionName": "ASPNETCORE_ENVIRONMENT",
+                    "Value": "Production"
+                },
+                {
+                    "Namespace": "aws:elasticbeanstalk:application:environment",
+                    "OptionName": "ASPNETCORE_URLS",
+                    "Value": "http://+:5000"
+                },
+                {
+                    "Namespace": "aws:elasticbeanstalk:healthreporting:system",
+                    "OptionName": "HealthCheckSuccessThreshold",
+                    "Value": "Ok"
+                },
+                {
+                    "Namespace": "aws:elasticbeanstalk:healthreporting:system",
+                    "OptionName": "SystemType",
+                    "Value": "enhanced"
+                }
+            ],
+            "SolutionStackName": "64bit Amazon Linux 2023 v4.6.5 running Docker"
+        }
+    }
+}

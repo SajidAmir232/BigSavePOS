@@ -1,0 +1,173 @@
+@page "/sales-returns"
+@rendermode InteractiveServer
+@inject InvoiceService InvoiceService
+@inject InvoiceReturnService ReturnService
+@inject ProductService ProductService
+@using POSApp.Data.Models
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">Sales Returns</h2>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 380px;gap:16px;">
+    <div>
+        <div class="card">
+            <div class="card-header">Select Invoice</div>
+            <input type="text" class="form-control form-control-sm mb-3" placeholder="Search invoices..." @bind="searchQuery" @bind:event="oninput" />
+            <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+                <table>
+                    <thead><tr><th>Invoice #</th><th>Date</th><th>Total</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var inv in filteredInvoices)
+                        {
+                            <tr class="@(selectedInvoice?.Guid == inv.Guid ? "selected" : "")">
+                                <td class="fw-600">@inv.InvoiceNumber</td>
+                                <td>@inv.InvoiceDate.ToString("dd/MM/yyyy")</td>
+                                <td>Rs@(inv.GrandTotal.ToString("N0"))</td>
+                                <td><span class="badge @(inv.Status == "Paid" ? "badge-green" : "badge-red")">@inv.Status</span></td>
+                                <td><button class="btn btn-ghost btn-sm" @onclick="() => SelectInvoice(inv)">Select</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        @if (returns.Any())
+        {
+            <div class="card mt-3">
+                <div class="card-header">Return History</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Date</th><th>Invoice</th><th>Product</th><th>Qty</th><th>Reason</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in returns)
+                            {
+                                <tr>
+                                    <td>@r.ReturnDate.ToString("dd/MM/yyyy")</td>
+                                    <td>@(invoices.FirstOrDefault(i => i.Guid == r.OriginalInvoiceGuid)?.InvoiceNumber ?? "-")</td>
+                                    <td>@(GetProductName(r.ProductGuid))</td>
+                                    <td>@r.Quantity</td>
+                                    <td>@(r.Reason ?? "-")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div>
+        @if (selectedInvoice != null)
+        {
+            <div class="card">
+                <div class="card-header">Process Return</div>
+                <div style="font-size:13px;display:grid;gap:6px;margin-bottom:12px;">
+                    <div class="d-flex justify-between"><span class="text-muted">Invoice</span><span class="fw-600">@selectedInvoice.InvoiceNumber</span></div>
+                    <div class="d-flex justify-between"><span class="text-muted">Date</span><span>@selectedInvoice.InvoiceDate.ToString("dd/MM/yyyy")</span></div>
+                    <div class="d-flex justify-between"><span class="text-muted">Total</span><span class="fw-600">Rs@(selectedInvoice.GrandTotal.ToString("N0"))</span></div>
+                </div>
+
+                <div class="text-sm fw-600 text-muted mb-2">Items to Return</div>
+                @foreach (var item in selectedInvoice.Items)
+                {
+                    <div class="d-flex align-center gap-2 mb-2" style="padding:8px;background:#f8fafc;border-radius:6px;">
+                        <div style="flex:1;font-size:12px;">
+                            <div class="fw-600">@item.ProductName</div>
+                            <div class="text-muted">Qty: @item.Quantity | Rs@(item.UnitPrice.ToString("N0"))</div>
+                        </div>
+                        <input type="number" class="form-control form-control-sm" style="width:60px;" min="0" max="@item.Quantity" @bind="returnQuantities[item.ProductGuid]" @bind:event="oninput" />
+                    </div>
+                }
+
+                <div class="form-group mt-3">
+                    <label>Reason</label>
+                    <input class="form-control form-control-sm" @bind="returnReason" placeholder="e.g. Defective, Wrong item..." />
+                </div>
+
+                <button class="btn btn-danger mt-2" style="width:100%;justify-content:center;" @onclick="ProcessReturn">
+                    Process Return
+                </button>
+
+                @if (!string.IsNullOrEmpty(message))
+                {
+                    <div style="margin-top:8px;padding:8px;border-radius:6px;font-size:12px;background:@(isSuccess ? "#d1fae5" : "#fee2e2");color:@(isSuccess ? "#065f46" : "#991b1b");">@message</div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="card" style="text-align:center;padding:40px;color:#94a3b8;">
+                Select an invoice to process returns
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string searchQuery = "";
+    private List<Invoice> invoices = new();
+    private Invoice? selectedInvoice;
+    private string returnReason = "";
+    private string message = "";
+    private bool isSuccess;
+    private Dictionary<Guid, decimal> returnQuantities = new();
+    private List<InvoiceReturn> returns = new();
+
+    private List<Invoice> filteredInvoices => string.IsNullOrWhiteSpace(searchQuery)
+        ? invoices
+        : invoices.Where(i => i.InvoiceNumber.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override void OnInitialized()
+    {
+        invoices = InvoiceService.GetAll();
+        returns = ReturnService.GetAll();
+    }
+
+    private void SelectInvoice(Invoice inv)
+    {
+        selectedInvoice = inv;
+        returnQuantities = inv.Items.ToDictionary(i => i.ProductGuid, i => (decimal)0);
+        message = "";
+    }
+
+    private string GetProductName(Guid productGuid) => ProductService.GetByGuid(productGuid)?.Name ?? "Unknown";
+
+    private void ProcessReturn()
+    {
+        message = "";
+        if (selectedInvoice == null) return;
+
+        var itemsToReturn = returnQuantities.Where(kv => kv.Value > 0).ToList();
+        if (!itemsToReturn.Any())
+        {
+            message = "Enter return quantity for at least one item.";
+            isSuccess = false;
+            return;
+        }
+
+        foreach (var kv in itemsToReturn)
+        {
+            var invoiceItem = selectedInvoice.Items.FirstOrDefault(i => i.ProductGuid == kv.Key);
+            if (invoiceItem == null || kv.Value > invoiceItem.Quantity) continue;
+
+            var invoiceReturn = new InvoiceReturn
+            {
+                OriginalInvoiceGuid = selectedInvoice.Guid,
+                ProductGuid = kv.Key,
+                Quantity = kv.Value,
+                Reason = returnReason,
+                ReturnDate = DateTime.Now
+            };
+
+            ReturnService.ProcessReturn(invoiceReturn);
+        }
+
+        message = "Return processed successfully!";
+        isSuccess = true;
+        selectedInvoice = null;
+        invoices = InvoiceService.GetAll();
+        returns = ReturnService.GetAll();
+    }
+}

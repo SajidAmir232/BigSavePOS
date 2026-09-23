@@ -1,0 +1,317 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject ReportsService ReportsService
+@inject ProductService ProductService
+@inject CustomerService CustomerService
+@inject PurchaseInvoiceService PurchaseInvoiceService
+@inject WebAuthService WebAuth
+@inject IJSRuntime JS
+
+<style>
+    .wb{background:linear-gradient(135deg,#1e1b4b 0%,#4338ca 100%);border-radius:10px;padding:24px 28px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;color:#fff;flex-wrap:wrap;gap:16px}
+    .wb-left h2{font-size:22px;font-weight:700;margin:0 0 4px 0}
+    .wb-left p{font-size:13px;color:#a5b4fc;margin:0}
+    .wb-right{display:flex;align-items:center;gap:24px}
+    .wb-stat-l{font-size:10px;font-weight:600;color:#a5b4fc;letter-spacing:.5px;margin-bottom:4px}
+    .wb-stat-v{font-size:18px;font-weight:700}
+    .wb-div{width:1px;height:36px;background:rgba(99,102,241,.3)}
+    .sg{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+    .sc{background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:16px 20px;position:relative;overflow:hidden}
+    .sc::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+    .sc.sc-g::before{background:#10b981}
+    .sc.sc-b::before{background:#4f46e5}
+    .sc.sc-a::before{background:#f59e0b}
+    .sc.sc-r::before{background:#ef4444}
+    .sc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+    .sc-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+    .sc .label{font-size:12px;color:#64748b}
+    .sc .value{font-size:22px;font-weight:700}
+    .sc.sc-g .value{color:#10b981}
+    .sc.sc-b .value{color:#4f46e5}
+    .sc.sc-a .value{color:#f59e0b}
+    .sc.sc-r .value{color:#ef4444}
+    .sc .sub{font-size:11px;color:#94a3b8;margin-top:4px}
+    .chart-wrap{display:flex;gap:8px;height:160px;padding:10px 0}
+    .chart-y{display:flex;flex-direction:column;justify-content:space-between;width:50px}
+    .chart-yl{font-size:10px;color:#94a3b8;text-align:right;height:30px;display:flex;align-items:center;justify-content:flex-end}
+    .chart-b{display:flex;gap:4px;flex:1;align-items:flex-end}
+    .chart-c{display:flex;flex-direction:column;align-items:center;flex:1}
+    .chart-br{display:flex;gap:3px;align-items:flex-end;height:120px;width:100%;justify-content:center}
+    .chart-ba{width:14px;border-radius:3px 3px 0 0;min-height:2px;cursor:pointer}
+    .chart-dl{font-size:10px;color:#64748b;margin-top:6px}
+    .chart-dd{font-size:9px;color:#94a3b8}
+    .chart-lg{display:flex;gap:16px;padding-top:8px;border-top:1px solid #f1f5f9}
+    .lg-i{display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b}
+    .lg-d{width:10px;height:10px;border-radius:2px}
+    .cat-r{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+    .cat-i{flex:1;min-width:0}
+    .cat-n{font-size:13px;font-weight:600;color:#1e293b}
+    .cat-m{font-size:11px;color:#94a3b8}
+    .cat-bw{width:120px;flex-shrink:0}
+    .cat-bg{height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden}
+    .cat-bf{height:100%;border-radius:4px}
+    .cat-p{font-size:12px;font-weight:600;min-width:36px;text-align:right}
+    .tp-r{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}
+    .tp-r:last-child{border-bottom:none}
+    .rank-b{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+    .tp-i{flex:1;min-width:0}
+    .tp-n{font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tp-m{font-size:11px;color:#94a3b8}
+    .tp-rev{font-size:12px;font-weight:700;color:#10b981;flex-shrink:0}
+    @@media(max-width:900px){.sg{grid-template-columns:1fr 1fr}.wb{flex-direction:column;align-items:flex-start}}
+    @@media(max-width:600px){.sg{grid-template-columns:1fr}}
+</style>
+
+<div class="wb">
+    <div class="wb-left">
+        <h2>Welcome back, @(WebAuth.CurrentUser?.Username ?? "Admin")</h2>
+        <p>@DateTime.Now.ToString("dddd, MMMM dd, yyyy") | @(WebAuth.CurrentUser?.Role ?? "Admin")</p>
+        <a class="btn btn-primary btn-sm mt-3" href="/pos">Start New Sale</a>
+    </div>
+    <div class="wb-right">
+        <div><div class="wb-stat-l">TODAY'S SALES</div><div class="wb-stat-v">Rs@(todaySales.ToString("N0"))</div></div>
+        <div class="wb-div"></div>
+        <div><div class="wb-stat-l">THIS MONTH</div><div class="wb-stat-v">Rs@(totalSales.ToString("N0"))</div></div>
+        <div class="wb-div"></div>
+        <div><div class="wb-stat-l">TOTAL PRODUCTS</div><div class="wb-stat-v">@productCount</div></div>
+    </div>
+</div>
+
+<div class="sg">
+    <div class="sc sc-g">
+        <div class="sc-top"><div class="label">Total Sales</div><div class="sc-icon" style="background:rgba(16,185,129,.12);color:#10b981;">&#9650;</div></div>
+        <div class="value">Rs@(totalSales.ToString("N0"))</div>
+        <div class="sub">Revenue this month</div>
+    </div>
+    <div class="sc sc-b">
+        <div class="sc-top"><div class="label">Total Purchases</div><div class="sc-icon" style="background:rgba(59,130,246,.12);color:#3b82f6;">&#9660;</div></div>
+        <div class="value">Rs@(totalPurchases.ToString("N0"))</div>
+        <div class="sub">Spent on inventory</div>
+    </div>
+    <div class="sc sc-a">
+        <div class="sc-top"><div class="label">Outstanding</div><div class="sc-icon" style="background:rgba(245,158,11,.12);color:#f59e0b;">&#9888;</div></div>
+        <div class="value">Rs@(outstandingReceivables.ToString("N0"))</div>
+        <div class="sub">Pending receivables</div>
+    </div>
+    <div class="sc sc-r">
+        <div class="sc-top"><div class="label">Low Stock</div><div class="sc-icon" style="background:rgba(239,68,68,.12);color:#ef4444;">&#9888;</div></div>
+        <div class="value">@lowStockCount</div>
+        <div class="sub">Products below 10 units</div>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="card" style="margin-bottom:0;">
+        <div class="card-header">Sales vs Purchases (Last 7 Days)</div>
+        <div class="chart-wrap">
+            <div class="chart-y">
+                @for (int i = 4; i >= 0; i--)
+                {
+                    var val = chartMaxVal * i / 4;
+                    <div class="chart-yl">@(val >= 1000000 ? $"{val/1000000:0.#}M" : val >= 1000 ? $"{val/1000:0.#}K" : val.ToString("N0"))</div>
+                }
+            </div>
+            <div class="chart-b">
+                @foreach (var day in last7Days)
+                {
+                    <div class="chart-c">
+                        <div class="chart-br">
+                            <div class="chart-ba" style="height:@GetBarHeight(day.sales)%;background:#4f46e5;" title="Sales: Rs@(day.sales.ToString("N0"))"></div>
+                            <div class="chart-ba" style="height:@GetBarHeight(day.purchases)%;background:#10b981;" title="Purchases: Rs@(day.purchases.ToString("N0"))"></div>
+                        </div>
+                        <div class="chart-dl">@day.date.ToString("ddd")</div>
+                        <div class="chart-dd">@day.date.ToString("dd")</div>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="chart-lg">
+            <div class="lg-i"><div class="lg-d" style="background:#4f46e5;"></div>Sales</div>
+            <div class="lg-i"><div class="lg-d" style="background:#10b981;"></div>Purchases</div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom:0;">
+        <div class="card-header">Product Categories</div>
+        @if (categories.Any())
+        {
+            @foreach (var cat in categories)
+            {
+                var pct = totalProducts > 0 ? (cat.Count * 100) / totalProducts : 0;
+                var colorIdx = categories.IndexOf(cat) % catColors.Length;
+                <div class="cat-r">
+                    <div class="cat-i"><div class="cat-n">@cat.Name</div><div class="cat-m">@cat.Count products | @cat.Stock in stock</div></div>
+                    <div class="cat-bw"><div class="cat-bg"><div class="cat-bf" style="width:@(pct)%;background:@catColors[colorIdx];"></div></div></div>
+                    <div class="cat-p" style="color:@catColors[colorIdx];">@pct%</div>
+                </div>
+            }
+        }
+        else
+        {
+            <div style="text-align:center;padding:20px;color:#94a3b8;font-size:13px;">No product data</div>
+        }
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;">
+    <div class="card" style="margin-bottom:0;">
+        <div class="card-header">Recent Sales</div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var inv in recentInvoices)
+                    {
+                        <tr>
+                            <td class="fw-600">@inv.InvoiceNumber</td>
+                            <td>@(GetCustomerName(inv.CustomerGuid))</td>
+                            <td>@inv.InvoiceDate.ToString("dd/MM/yyyy")</td>
+                            <td class="fw-600">Rs@(inv.GrandTotal.ToString("N0"))</td>
+                            <td><span class="badge @(inv.Status == "Paid" ? "badge-green" : "badge-red")">@inv.Status</span></td>
+                            <td><button class="btn btn-ghost btn-sm" @onclick="() => PrintInvoice(inv)">Print</button></td>
+                        </tr>
+                    }
+                    @if (!recentInvoices.Any())
+                    {
+                        <tr><td colspan="6" style="text-align:center;padding:20px;color:#94a3b8;font-size:13px;">No recent sales</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom:0;">
+        <div class="card-header">Top Selling Products</div>
+        @if (topProducts.Any())
+        {
+            @for (int i = 0; i < topProducts.Count; i++)
+            {
+                var item = topProducts[i];
+                var color = rankColors[i % rankColors.Length];
+                <div class="tp-r">
+                    <div class="rank-b" style="background:rgba(@GetRgb(color),0.12);color:@color;">@(i + 1)</div>
+                    <div class="tp-i"><div class="tp-n">@item.Name</div><div class="tp-m">@item.Qty sold</div></div>
+                    <div class="tp-rev">Rs@item.Revenue.ToString("N0")</div>
+                </div>
+            }
+        }
+        else
+        {
+            <div style="text-align:center;padding:20px;color:#94a3b8;font-size:13px;">No sales data</div>
+        }
+    </div>
+</div>
+
+@code {
+    private decimal totalSales;
+    private decimal totalPurchases;
+    private decimal todaySales;
+    private decimal outstandingReceivables;
+    private int customerCount;
+    private int productCount;
+    private int lowStockCount;
+    private int totalProducts;
+    private List<Invoice> recentInvoices = new();
+    private List<Product> lowStockProducts = new();
+    private List<(DateTime date, decimal sales, decimal purchases)> last7Days = new();
+    private decimal chartMaxVal = 1;
+    private List<(string Name, int Count, int Stock)> categories = new();
+    private List<(string Name, int Qty, decimal Revenue)> topProducts = new();
+
+    private string[] catColors = new[] { "#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4" };
+    private string[] rankColors = new[] { "#4f46e5", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#6b7280" };
+
+    protected override void OnInitialized()
+    {
+        var fromDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        var toDate = DateTime.Now;
+
+        var summary = ReportsService.GetSalesSummaryReport(fromDate, toDate);
+        var salesStr = summary.FirstOrDefault(s => s.Metric == "Total Sales Amount")?.Value ?? "Rs0";
+        totalSales = decimal.TryParse(salesStr.Replace("Rs", "").Replace(",", ""), out var s) ? s : 0;
+
+        var purchaseSummary = ReportsService.GetPurchaseSummaryReport(fromDate, toDate);
+        totalPurchases = purchaseSummary.Sum(p => decimal.TryParse(p.TotalPurchase.Replace("Rs", "").Replace(",", ""), out var v) ? v : 0);
+
+        customerCount = CustomerService.GetAll().Count;
+        productCount = ProductService.GetAll().Count;
+
+        using var db = new LocalDbContext();
+        recentInvoices = db.Invoices.Where(i => !i.IsDeleted).OrderByDescending(i => i.InvoiceDate).Take(5).ToList();
+        lowStockProducts = db.Products.Where(p => !p.IsDeleted && p.Quantity <= 10).OrderBy(p => p.Quantity).Take(5).ToList();
+        lowStockCount = db.Products.Count(p => !p.IsDeleted && p.Quantity < 10);
+        totalProducts = db.Products.Count(p => !p.IsDeleted);
+
+        var today = DateTime.Today;
+        todaySales = db.Invoices.Where(i => i.InvoiceDate >= today && i.InvoiceDate <= today.AddDays(1).AddTicks(-1) && !i.IsDeleted).Select(i => i.GrandTotal).ToList().Sum();
+
+        outstandingReceivables = 0;
+        var customers = db.Customers.Where(c => !c.IsDeleted).ToList();
+        foreach (var c in customers)
+        {
+            var unpaid = db.Invoices.Where(i => i.CustomerGuid == c.Guid && i.Status != "Paid" && !i.IsDeleted).Select(i => new { i.GrandTotal, i.PaidAmount }).ToList();
+            outstandingReceivables += c.OpeningBalance + unpaid.Sum(i => i.GrandTotal - i.PaidAmount);
+        }
+
+        for (int i = 6; i >= 0; i--)
+        {
+            var d = today.AddDays(-i);
+            var dayStart = d;
+            var dayEnd = d.AddDays(1).AddTicks(-1);
+            var daySales = db.Invoices.Where(inv => inv.InvoiceDate >= dayStart && inv.InvoiceDate <= dayEnd && !inv.IsDeleted).Select(inv => inv.GrandTotal).ToList().Sum();
+            var dayPurchases = db.PurchaseInvoices.Where(p => p.PurchaseDate >= dayStart && p.PurchaseDate <= dayEnd && !p.IsDeleted).Select(p => p.SubTotal).ToList().Sum();
+            last7Days.Add((d, daySales, dayPurchases));
+        }
+        chartMaxVal = Math.Max(last7Days.Max(d => Math.Max(d.sales, d.purchases)), 1);
+
+        var allProductsList = db.Products.Where(p => !p.IsDeleted).ToList();
+        categories = allProductsList
+            .GroupBy(p => p.Category ?? "General")
+            .Select(g => new { Name = g.Key, Count = g.Count(), Stock = g.Sum(p => p.Quantity) })
+            .OrderByDescending(x => x.Count)
+            .ToList()
+            .Select(x => (x.Name, x.Count, x.Stock))
+            .ToList();
+
+        var invoiceGuids = db.Invoices.Where(i => !i.IsDeleted && i.InvoiceDate >= fromDate && i.InvoiceDate <= toDate).Select(i => i.Guid).ToList();
+        var invoiceItems = db.InvoiceItems.Where(ii => invoiceGuids.Contains(ii.InvoiceGuid) && !ii.IsDeleted).ToList();
+        topProducts = invoiceItems
+            .GroupBy(ii => ii.ProductName)
+            .Select(g => new { Name = g.Key, Qty = (int)g.Sum(x => x.Quantity), Revenue = g.Sum(x => x.Total) })
+            .OrderByDescending(x => x.Revenue)
+            .Take(8)
+            .ToList()
+            .Select(x => (x.Name, x.Qty, x.Revenue))
+            .ToList();
+    }
+
+    private string GetBarHeight(decimal value)
+    {
+        if (chartMaxVal == 0) return "0";
+        return Math.Max(2, (int)(100 * value / chartMaxVal)).ToString();
+    }
+
+    private string GetCustomerName(Guid customerGuid)
+    {
+        using var db = new LocalDbContext();
+        return db.Customers.FirstOrDefault(c => c.Guid == customerGuid && !c.IsDeleted)?.Name ?? "Walk-in";
+    }
+
+    private string GetRgb(string hex)
+    {
+        hex = hex.Replace("#", "");
+        return $"{Convert.ToInt32(hex.Substring(0, 2), 16)},{Convert.ToInt32(hex.Substring(2, 2), 16)},{Convert.ToInt32(hex.Substring(4, 2), 16)}";
+    }
+
+    private async Task PrintInvoice(Invoice inv)
+    {
+        using var db = new LocalDbContext();
+        var customer = db.Customers.FirstOrDefault(c => c.Guid == inv.CustomerGuid && !c.IsDeleted);
+        var items = db.InvoiceItems.Where(i => i.InvoiceGuid == inv.Guid && !i.IsDeleted).ToList();
+        var settings = db.CompanySettings.FirstOrDefault();
+        var html = InvoicePrintHelper.BuildInvoiceHtml(inv, items, customer, settings?.CompanyName ?? "POS System", settings?.Address ?? "", settings?.TaxNumber ?? "");
+        await JS.InvokeVoidAsync("openInvoicePrint", html);
+    }
+}

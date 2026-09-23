@@ -1,0 +1,191 @@
+@page "/imei-management"
+@rendermode InteractiveServer
+@inject ImeiService ImeiService
+@inject ProductService ProductService
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">IMEI Management</h2>
+    <button class="btn btn-primary btn-sm" @onclick="ShowAddForm">+ Add IMEI</button>
+</div>
+
+<div class="stat-grid mb-4">
+    <div class="stat-card green"><div class="label">Available</div><div class="value">@allUnits.Count(i => i.Status == "Available")</div></div>
+    <div class="stat-card blue"><div class="label">Sold</div><div class="value">@allUnits.Count(i => i.Status == "Sold")</div></div>
+    <div class="stat-card amber"><div class="label">In Repair</div><div class="value">@allUnits.Count(i => i.Status == "InRepair")</div></div>
+    <div class="stat-card red"><div class="label">Defective</div><div class="value">@allUnits.Count(i => i.Status == "Defective")</div></div>
+</div>
+
+<div class="card">
+    <div class="d-flex gap-2 mb-3">
+        <input type="text" class="form-control form-control-sm" placeholder="Search by serial number..." @bind="searchQuery" @bind:event="oninput" style="width:280px;" />
+        <select class="form-control form-control-sm" @bind="statusFilter" style="width:150px;">
+            <option value="">All Status</option>
+            <option value="Available">Available</option>
+            <option value="Sold">Sold</option>
+            <option value="Returned">Returned</option>
+            <option value="Defective">Defective</option>
+            <option value="InRepair">In Repair</option>
+        </select>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Serial Number</th>
+                    <th>Product</th>
+                    <th>Purchase Price</th>
+                    <th>Sale Price</th>
+                    <th>Status</th>
+                    <th>Purchase Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var unit in filteredUnits)
+                {
+                    <tr>
+                        <td class="fw-600">@unit.SerialNumber</td>
+                        <td>@(products.FirstOrDefault(p => p.Guid == unit.ProductGuid)?.Name ?? "Unknown")</td>
+                        <td>Rs@(unit.PurchasePrice.ToString("N0"))</td>
+                        <td>Rs@(unit.SalePrice.ToString("N0"))</td>
+                        <td>
+                            <span class="badge @GetStatusBadge(unit.Status)">@unit.Status</span>
+                        </td>
+                        <td>@unit.PurchaseDate.ToString("dd/MM/yyyy")</td>
+                        <td>
+                            @if (unit.Status == "Available")
+                            {
+                                <button class="btn btn-ghost btn-sm" style="color:#ef4444;" @onclick="() => MarkDefective(unit.Guid)">Defective</button>
+                                <button class="btn btn-ghost btn-sm" style="color:#f59e0b;" @onclick="() => MarkInRepair(unit.Guid)">In Repair</button>
+                            }
+                            else if (unit.Status == "Defective" || unit.Status == "InRepair")
+                            {
+                                <button class="btn btn-ghost btn-sm" style="color:#10b981;" @onclick="() => MarkAvailable(unit.Guid)">Mark Available</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (showForm)
+{
+    <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;" @onclick="CloseForm">
+        <div class="card" style="width:420px;" @onclick:stopPropagation="true">
+            <div class="card-header">Add IMEI Unit</div>
+            <div class="form-group">
+                <label>Product</label>
+                <select class="form-control form-control-sm" @bind="formProductGuid">
+                    <option value="">-- Select Product --</option>
+                    @foreach (var p in products)
+                    {
+                        <option value="@p.Guid">@p.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Serial Number (IMEI)</label>
+                <input class="form-control form-control-sm" @bind="formSerialNumber" placeholder="Enter IMEI" />
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group">
+                    <label>Purchase Price</label>
+                    <input type="number" class="form-control form-control-sm" @bind="formPurchasePrice" />
+                </div>
+                <div class="form-group">
+                    <label>Sale Price</label>
+                    <input type="number" class="form-control form-control-sm" @bind="formSalePrice" />
+                </div>
+            </div>
+            <div class="d-flex gap-2" style="justify-content:flex-end;">
+                <button class="btn btn-ghost btn-sm" @onclick="CloseForm">Cancel</button>
+                <button class="btn btn-primary btn-sm" @onclick="SaveImei">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string searchQuery = "";
+    private string statusFilter = "";
+    private List<ImeiUnit> allUnits = new();
+    private List<Product> products = new();
+    private bool showForm;
+    private string formProductGuid = "";
+    private string formSerialNumber = "";
+    private decimal formPurchasePrice;
+    private decimal formSalePrice;
+
+    private List<ImeiUnit> filteredUnits
+    {
+        get
+        {
+            var query = allUnits.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+                query = query.Where(u => u.SerialNumber.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(statusFilter))
+                query = query.Where(u => u.Status == statusFilter);
+            return query.ToList();
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        allUnits = ImeiService.GetAll();
+        products = ProductService.GetAll();
+    }
+
+    private string GetStatusBadge(string status) => status switch
+    {
+        "Available" => "badge-green",
+        "Sold" => "badge-blue",
+        "Returned" => "badge-amber",
+        "Defective" => "badge-red",
+        "InRepair" => "badge-amber",
+        _ => "badge-blue"
+    };
+
+    private void ShowAddForm()
+    {
+        formProductGuid = "";
+        formSerialNumber = "";
+        formPurchasePrice = 0;
+        formSalePrice = 0;
+        showForm = true;
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private void SaveImei()
+    {
+        if (string.IsNullOrEmpty(formProductGuid) || string.IsNullOrWhiteSpace(formSerialNumber)) return;
+
+        var imei = new ImeiUnit
+        {
+            ProductGuid = Guid.Parse(formProductGuid),
+            SerialNumber = formSerialNumber,
+            PurchasePrice = formPurchasePrice,
+            SalePrice = formSalePrice,
+            Status = "Available",
+            PurchaseDate = DateTime.Now
+        };
+
+        ImeiService.Save(imei);
+        showForm = false;
+        allUnits = ImeiService.GetAll();
+    }
+
+    private void MarkDefective(Guid guid) { ImeiService.MarkAsDefective(guid); allUnits = ImeiService.GetAll(); }
+    private void MarkInRepair(Guid guid)
+    {
+        var unit = ImeiService.GetByGuid(guid);
+        if (unit != null) { unit.Status = "InRepair"; ImeiService.Save(unit); allUnits = ImeiService.GetAll(); }
+    }
+    private void MarkAvailable(Guid guid)
+    {
+        var unit = ImeiService.GetByGuid(guid);
+        if (unit != null) { unit.Status = "Available"; ImeiService.Save(unit); allUnits = ImeiService.GetAll(); }
+    }
+}

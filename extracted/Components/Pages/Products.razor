@@ -1,0 +1,98 @@
+@page "/products"
+@rendermode InteractiveServer
+@using POSApp.Data.Models
+@inject ProductService ProductService
+@inject WebAuthService WebAuth
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="d-flex align-center justify-between mb-4">
+    <input class="form-control form-control-sm" placeholder="Search name / barcode / brand..." @bind="searchQuery" @bind:event="oninput" @onkeydown="HandleProductScan" style="width:320px" />
+    <div class="d-flex align-center gap-2">
+        @if (canDelete)
+        {
+            <button class="btn btn-outline btn-sm" @onclick="SelectMockProducts">Select Mock Data</button>
+            @if (selectedProductIds.Count > 0) { <button class="btn btn-danger btn-sm" @onclick="DeleteSelected">Delete Selected (@selectedProductIds.Count)</button> }
+        }
+        @if (canEdit) { <button class="btn btn-primary btn-sm" @onclick="ShowAddForm">+ Add Product</button> }
+    </div>
+</div>
+
+<div class="card"><div class="table-wrap"><table><thead><tr>
+    @if (canDelete) { <th class="select-column"><input type="checkbox" checked="@(filteredProducts.Any() && filteredProducts.All(p => selectedProductIds.Contains(p.Id)))" @onchange="ToggleAll" /></th> }
+    <th>Product</th><th>Barcode</th><th>Category</th><th>Cost</th><th>Retail</th><th>Wholesale</th><th>Stock</th><th>Expiry</th><th>Actions</th>
+</tr></thead><tbody>
+@foreach (var p in filteredProducts)
+{
+    <tr>
+        @if (canDelete) { <td><input type="checkbox" checked="@selectedProductIds.Contains(p.Id)" @onchange="e => ToggleSelection(p.Id, e)" /></td> }
+        <td class="fw-600">@p.Name<br /><span class="text-muted text-sm">@p.Brand</span></td>
+        <td>@p.Barcode</td><td>@p.Category / @p.Subcategory</td>
+        <td>Rs @p.PurchasePrice.ToString("N2")</td><td>Rs @p.SalePrice.ToString("N2")</td><td>Rs @p.WholesalePrice.ToString("N2")</td>
+        <td><span class="badge @(p.Quantity <= p.MinimumStock ? "badge-red" : "badge-green")">@p.Quantity @p.Unit</span></td>
+        <td>@(p.ExpiryDate?.ToString("dd MMM yyyy") ?? "-")</td>
+        <td><details class="action-menu"><summary class="btn btn-ghost btn-sm">Actions</summary><div class="action-menu-list">
+            @if (canEdit) { <button @onclick="() => EditProduct(p)">Edit</button><button @onclick="() => PrintBarcode(p)">Print Barcode</button> }
+            @if (canDelete) { <button class="text-danger" @onclick="() => DeleteProduct(p)">Delete</button> }
+        </div></details></td>
+    </tr>
+}
+</tbody></table></div></div>
+
+@if (showForm)
+{
+    <div id="product-form-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;display:flex;align-items:center;justify-content:center" @onclick="Close">
+        <div class="card" style="width:620px;max-height:90vh;overflow:auto" @onclick:stopPropagation="true">
+            <div class="card-header">@(editing == null ? "Add Product" : "Edit Product")</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div class="form-group"><label>Name</label><input class="form-control" @bind="name" autocomplete="off" /></div>
+                <div class="form-group"><label>Barcode</label><input class="form-control" data-barcode-input @bind="barcode" autocomplete="off" inputmode="numeric" autofocus /></div>
+                <div class="form-group"><label>Brand</label><input class="form-control" @bind="brand" autocomplete="off" /></div>
+                <div class="form-group"><label>Category</label><input class="form-control" @bind="category" autocomplete="off" /></div>
+                <div class="form-group"><label>Subcategory</label><input class="form-control" @bind="subcategory" autocomplete="off" /></div>
+                <div class="form-group"><label>Unit</label><select class="form-control" @bind="unit"><option>pcs</option><option>Kg</option><option>Gram</option><option>Liter</option><option>Pack</option><option>Box</option></select></div>
+                <div class="form-group"><label>Minimum Stock</label><input class="form-control" type="number" @bind="minimumStock" /></div>
+                <div class="form-group"><label>Purchase Price</label><input class="form-control" type="number" @bind="purchasePrice" /></div>
+                <div class="form-group"><label>Sale Price</label><input class="form-control" type="number" @bind="salePrice" /></div>
+                <div class="form-group"><label>Wholesale Price</label><input class="form-control" type="number" @bind="wholesalePrice" /></div>
+                <div class="form-group"><label>Stock</label><input class="form-control" type="number" @bind="quantity" /></div>
+                <div class="form-group"><label>Expiry Date</label><input class="form-control" type="date" @bind="expiryDate" /></div>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(message)) { <div class="mt-2 text-sm">@message</div> }
+            <div class="d-flex gap-2" style="justify-content:flex-end"><button class="btn btn-ghost" @onclick="Close">Cancel</button><button class="btn btn-primary" @onclick="Save">Save</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Product> products = new();
+    private Product? editing;
+    private readonly HashSet<int> selectedProductIds = new();
+    private string searchQuery = "", name = "", barcode = "", brand = "", category = "", subcategory = "", unit = "pcs", message = "";
+    private decimal purchasePrice, salePrice, wholesalePrice;
+    private int quantity, minimumStock = 10;
+    private DateTime? expiryDate;
+    private bool showForm, scannerAttached;
+    private bool canEdit => PosAuthorizationService.CanManageProducts(WebAuth.CurrentUser);
+    private bool canDelete => PosAuthorizationService.IsAdmin(WebAuth.CurrentUser);
+    private IEnumerable<Product> filteredProducts => string.IsNullOrWhiteSpace(searchQuery) ? products : products.Where(p => $"{p.Name} {p.Barcode} {p.Brand}".Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized() => Load();
+    private void Load() => products = ProductService.GetVisible(WebAuth.CurrentUser!);
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (showForm && !scannerAttached) { await JS.InvokeVoidAsync("productScanner.attach", "#product-form-modal"); scannerAttached = true; }
+        else if (!showForm && scannerAttached) { await JS.InvokeVoidAsync("productScanner.detach"); scannerAttached = false; }
+    }
+    private void ShowAddForm() { if (!canEdit) return; editing = null; name = barcode = brand = category = subcategory = ""; unit = "pcs"; purchasePrice = salePrice = wholesalePrice = 0; quantity = 0; minimumStock = 10; expiryDate = null; message = ""; showForm = true; }
+    private void EditProduct(Product p) { if (!canEdit) return; editing = p; name = p.Name; barcode = p.Barcode ?? ""; brand = p.Brand ?? ""; category = p.Category ?? ""; subcategory = p.Subcategory ?? ""; unit = p.Unit; purchasePrice = p.PurchasePrice; salePrice = p.SalePrice; wholesalePrice = p.WholesalePrice; quantity = p.Quantity; minimumStock = p.MinimumStock; expiryDate = p.ExpiryDate; message = ""; showForm = true; }
+    private void Close() => showForm = false;
+    private void Save() { try { var p = editing ?? new Product { BranchId = WebAuth.CurrentUser?.PrimaryBranchId ?? 1 }; p.Name = name; p.Barcode = barcode; p.Brand = brand; p.Category = category; p.Subcategory = subcategory; p.Unit = unit; p.PurchasePrice = purchasePrice; p.SalePrice = salePrice; p.WholesalePrice = wholesalePrice; p.Quantity = quantity; p.MinimumStock = minimumStock; p.ExpiryDate = expiryDate; ProductService.Save(p, WebAuth.CurrentUser!); showForm = false; Load(); } catch (Exception ex) { message = ex.Message; } }
+    private void ToggleSelection(int id, ChangeEventArgs e) { if ((bool?)e.Value == true) selectedProductIds.Add(id); else selectedProductIds.Remove(id); }
+    private void ToggleAll(ChangeEventArgs e) { foreach (var id in filteredProducts.Select(p => p.Id)) { if ((bool?)e.Value == true) selectedProductIds.Add(id); else selectedProductIds.Remove(id); } }
+    private void SelectMockProducts() { selectedProductIds.Clear(); foreach (var p in products.Where(p => p.Barcode?.StartsWith("8901234567", StringComparison.Ordinal) == true)) selectedProductIds.Add(p.Id); }
+    private void DeleteProduct(Product p) { if (!canDelete) return; ProductService.Delete(p.Id, WebAuth.CurrentUser); selectedProductIds.Remove(p.Id); Load(); }
+    private void DeleteSelected() { if (!canDelete) return; foreach (var id in selectedProductIds.ToList()) ProductService.Delete(id, WebAuth.CurrentUser); selectedProductIds.Clear(); Load(); }
+    private void HandleProductScan(KeyboardEventArgs e) { if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(searchQuery)) Nav.NavigateTo($"/pos?barcode={Uri.EscapeDataString(searchQuery.Trim())}&scan={Guid.NewGuid():N}"); }
+    private async Task PrintBarcode(Product p) { var name = System.Net.WebUtility.HtmlEncode(p.Name); var barcode = System.Net.WebUtility.HtmlEncode(p.Barcode ?? ""); var price = p.SalePrice.ToString("N2"); await JS.InvokeVoidAsync("openBarcodePrint", name, barcode, price); }
+}

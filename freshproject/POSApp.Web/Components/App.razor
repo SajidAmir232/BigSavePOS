@@ -1,0 +1,194 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="app.css?v=2.0" />
+    <link rel="stylesheet" href="POSApp.Web.styles.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+    <script>
+        window.downloadBytes = function(name, bytes, type) { var blob = new Blob([new Uint8Array(bytes)], {type:type}); var a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(function(){URL.revokeObjectURL(a.href);},1000); };
+
+        window.openInvoicePrint = function(html) {
+            var w = window.open('', '_blank', 'width=800,height=600');
+            w.document.write(html);
+            w.document.close();
+        };
+
+        window.openBarcodePrint = function(name, barcode, price, copies) {
+            var w = window.open('', '_blank', 'width=420,height=300');
+            if (!w) return;
+            var patterns = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+            var values = Array.from(barcode).map(function(ch) { var n = ch.charCodeAt(0) - 32; return n >= 0 && n <= 94 ? n : 0; });
+            var checksum = 104; values.forEach(function(v, i) { checksum += v * (i + 1); }); checksum %= 103;
+            var code = [104].concat(values, [checksum, 106]);
+            var bars = code.map(function(v) { return patterns[v]; }).join('').split('').map(function(width, i) { return '<i style="display:inline-block;width:' + width + 'px;height:54px;background:' + (i % 2 ? '#fff' : '#111') + '"></i>'; }).join('');
+            var labels = Array(Math.max(1, copies || 1)).fill('<section><strong>' + name + '</strong><div class="bars">' + bars + '</div><div>' + barcode + '</div><div>Rs ' + price + '</div></section>').join('');
+            w.document.write('<!doctype html><html><head><title>Barcode</title><style>body{font-family:Arial;text-align:center;padding:20px}section{break-inside:avoid;margin-bottom:22px}.bars{height:58px;white-space:nowrap;overflow:hidden;margin:12px auto;width:320px}</style></head><body>' + labels + '<scr' + 'ipt>window.onload=function(){window.print();}</scr' + 'ipt></body></html>');
+            w.document.close();
+        };
+
+        window.productScanner = {
+            listener: null,
+            root: null,
+            focusBarcode: function() {
+                var barcode = document.querySelector('#product-form-modal [data-barcode-input]');
+                if (barcode) { barcode.focus(); barcode.select(); }
+            },
+            attach: function(selector) {
+                this.detach();
+                var root = document.querySelector(selector);
+                if (!root) return;
+                var barcode = root.querySelector('[data-barcode-input]');
+                var name = root.querySelector('[data-name-input]');
+                var fields = Array.from(root.querySelectorAll('[data-form-field]'));
+                this.root = root;
+                this.listener = function(event) {
+                    var target = event.target;
+                    if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) return;
+                    if (event.key === 'Enter') {
+                        event.preventDefault(); event.stopPropagation();
+                        var index = fields.indexOf(target);
+                        if (index >= 0 && fields[index + 1]) fields[index + 1].focus();
+                        else root.querySelector('[data-form-save]')?.focus();
+                        return;
+                    }
+                    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); root.querySelector('[data-form-cancel]')?.click(); }
+                };
+                root.addEventListener('keydown', this.listener, true);
+            },
+            detach: function() {
+                if (this.root && this.listener) this.root.removeEventListener('keydown', this.listener, true);
+                this.root = null;
+                this.listener = null;
+            }
+        };
+
+        window.globalScanner = {
+            listener: null,
+            buffer: '',
+            lastTime: 0,
+            attach: function(dotnet) {
+                this.detach();
+                this.listener = function(event) {
+                    var target = event.target;
+                    var inProductForm = target && target.closest && target.closest('#product-form-modal');
+                    var inPosScanner = target && target.matches && target.matches('input[placeholder^="Scan barcode"]');
+                    if (inProductForm) return;
+                    if (event.key === 'F2' || (event.ctrlKey && event.key.toLowerCase() === 'n')) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        dotnet.invokeMethodAsync('HandleGlobalShortcut');
+                        return;
+                    }
+                    if (event.key === 'Enter' && this.buffer.length >= 4) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        var code = this.buffer.trim();
+                        this.buffer = '';
+                        if (inPosScanner) {
+                            target.value = '';
+                            target.dispatchEvent(new Event('input', {bubbles: true}));
+                        }
+                        dotnet.invokeMethodAsync('HandleGlobalBarcode', code);
+                        return;
+                    }
+                    if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
+                    var now = performance.now();
+                    if (now - this.lastTime > 120) this.buffer = '';
+                    this.buffer += event.key;
+                    this.lastTime = now;
+                }.bind(this);
+                document.addEventListener('keydown', this.listener, true);
+            },
+            detach: function() {
+                if (this.listener) document.removeEventListener('keydown', this.listener, true);
+                this.listener = null;
+            }
+        };
+
+        window.posSidebar = {
+            init: function() {
+                if (this.bound) return;
+                this.bound = true;
+                this.handler = function(event) {
+                    var active = document.activeElement;
+                    var inputs = ['INPUT', 'TEXTAREA', 'SELECT'];
+                    if (active && active.tagName && inputs.indexOf(active.tagName) >= 0) return;
+                    var links = Array.from(document.querySelectorAll('.nav-link'));
+                    if (!links.length) return;
+                    var index = links.findIndex(function(link) { return link === document.activeElement || link.classList.contains('active'); });
+                    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        index = index >= 0 ? index : 0;
+                        if (event.key === 'ArrowDown') index = (index + 1) % links.length;
+                        else index = (index - 1 + links.length) % links.length;
+                        links[index].focus();
+                        links[index].click();
+                        setTimeout(function() { var firstButton = document.querySelector('main button:not([disabled]), main a.btn'); if (firstButton) firstButton.focus(); }, 250);
+                    } else if (event.key === 'Enter') {
+                        var current = document.activeElement;
+                        if (current && current.classList && current.classList.contains('nav-link')) {
+                            event.preventDefault();
+                            current.click();
+                            setTimeout(function() { var firstButton = document.querySelector('main button:not([disabled]), main a.btn'); if (firstButton) firstButton.focus(); }, 250);
+                        } else if (current && current.tagName === 'BUTTON' && current.closest('main')) {
+                            event.preventDefault();
+                            current.click();
+                        }
+                    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                        var pageButtons = Array.from(document.querySelectorAll('main button:not([disabled]), main a.btn:not([aria-disabled="true"])'));
+                        if (pageButtons.length && pageButtons.indexOf(document.activeElement) >= 0) {
+                            event.preventDefault();
+                            var buttonIndex = pageButtons.indexOf(document.activeElement);
+                            buttonIndex = event.key === 'ArrowDown' ? (buttonIndex + 1) % pageButtons.length : (buttonIndex - 1 + pageButtons.length) % pageButtons.length;
+                            pageButtons[buttonIndex].focus();
+                        }
+                    }
+                };
+                document.addEventListener('keydown', this.handler, true);
+            }
+        };
+
+        window.offlineSync = {
+            isOnline: function() { return navigator.onLine; },
+            saveInvoice: function(json) {
+                var pending = JSON.parse(localStorage.getItem('pos_pending_invoices') || '[]');
+                var invoice = JSON.parse(json);
+                pending.push(invoice);
+                localStorage.setItem('pos_pending_invoices', JSON.stringify(pending));
+            },
+            getPendingInvoices: function() {
+                return localStorage.getItem('pos_pending_invoices') || '[]';
+            },
+            getPendingCount: function() {
+                var pending = JSON.parse(localStorage.getItem('pos_pending_invoices') || '[]');
+                return pending.length;
+            },
+            removePendingInvoice: function(guid) {
+                var pending = JSON.parse(localStorage.getItem('pos_pending_invoices') || '[]');
+                pending = pending.filter(function(i) { return i.Guid !== guid; });
+                localStorage.setItem('pos_pending_invoices', JSON.stringify(pending));
+            },
+            clearAll: function() {
+                localStorage.removeItem('pos_pending_invoices');
+            }
+        };
+
+        window.addEventListener('online', function() {
+            Blazor.invokeMethodAsync('SyncOnlineStatus', true).catch(function(){});
+        });
+        window.addEventListener('offline', function() {
+            Blazor.invokeMethodAsync('SyncOnlineStatus', false).catch(function(){});
+        });
+    </script>
+</body>
+</html>

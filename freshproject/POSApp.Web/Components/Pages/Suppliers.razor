@@ -1,0 +1,105 @@
+@page "/suppliers"
+@rendermode InteractiveServer
+@inject SupplierService SupplierService
+
+<div class="d-flex align-center justify-between mb-4">
+    <input type="text" class="form-control form-control-sm" placeholder="Search suppliers..." @bind="searchQuery" @bind:event="oninput" style="width: 280px;" />
+    <button class="btn btn-primary btn-sm" @onclick="ShowAddForm">+ Add Supplier</button>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Address</th>
+                    <th>Payable Balance</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in filteredSuppliers)
+                {
+                    <tr>
+                        <td class="fw-600">@s.Name</td>
+                        <td>@(s.Phone ?? "-")</td>
+                        <td>@(s.Address ?? "-")</td>
+                        <td class="fw-600">Rs@(s.PayableBalance.ToString("N0"))</td>
+                        <td>
+                            <button class="btn btn-ghost btn-sm" @onclick="() => EditSupplier(s)">Edit</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (showForm)
+{
+    <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;" @onclick="CloseForm">
+        <div class="card" style="width:420px;" @onclick:stopPropagation="true">
+            <div class="card-header">@(editingSupplier == null ? "Add Supplier" : "Edit Supplier")</div>
+            <div class="form-group"><label>Name</label><input class="form-control" @bind="formName" /></div>
+            <div class="form-group"><label>Phone</label><input class="form-control" @bind="formPhone" /></div>
+            <div class="form-group"><label>Address</label><input class="form-control" @bind="formAddress" /></div>
+            <div class="d-flex gap-2" style="justify-content:flex-end;">
+                <button class="btn btn-ghost btn-sm" @onclick="CloseForm">Cancel</button>
+                <button class="btn btn-primary btn-sm" @onclick="SaveSupplier">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Supplier> allSuppliers = new();
+    private string searchQuery = "";
+    private bool showForm;
+    private Supplier? editingSupplier;
+    private string formName = "", formPhone = "", formAddress = "";
+
+    private List<Supplier> filteredSuppliers => string.IsNullOrWhiteSpace(searchQuery)
+        ? allSuppliers
+        : allSuppliers.Where(s => s.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override void OnInitialized() => LoadSuppliers();
+
+    private void LoadSuppliers() => allSuppliers = SupplierService.GetAll();
+
+    private void ShowAddForm()
+    {
+        editingSupplier = null;
+        formName = formPhone = formAddress = "";
+        showForm = true;
+    }
+
+    private void EditSupplier(Supplier s)
+    {
+        editingSupplier = s;
+        formName = s.Name;
+        formPhone = s.Phone ?? "";
+        formAddress = s.Address ?? "";
+        showForm = true;
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private void SaveSupplier()
+    {
+        if (editingSupplier != null)
+        {
+            editingSupplier.Name = formName;
+            editingSupplier.Phone = formPhone;
+            editingSupplier.Address = formAddress;
+        }
+        else
+        {
+            editingSupplier = new Supplier { Name = formName, Phone = formPhone, Address = formAddress };
+        }
+        SupplierService.Save(editingSupplier);
+        showForm = false;
+        LoadSuppliers();
+    }
+}

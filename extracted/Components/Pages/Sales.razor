@@ -1,0 +1,129 @@
+@page "/sales"
+@rendermode InteractiveServer
+@inject InvoiceService InvoiceService
+@inject CustomerService CustomerService
+@inject IJSRuntime JS
+
+<div class="d-flex align-center justify-between mb-4">
+    <input type="text" class="form-control form-control-sm" placeholder="Search invoices..." @bind="searchQuery" @bind:event="oninput" style="width: 280px;" />
+    <span class="text-muted text-sm">@filteredInvoices.Count invoice(s) | Total: Rs@(filteredInvoices.Sum(i => i.GrandTotal).ToString("N0"))</span>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr @(selectedInvoice != null ? "360px" : "0px");gap:0;">
+    <div class="card" style="margin-bottom:0;">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Invoice #</th>
+                        <th>Date</th>
+                        <th>Items</th>
+                        <th>Total</th>
+                        <th>Paid</th>
+                        <th>Status</th>
+                        <th>Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var inv in filteredInvoices)
+                    {
+                        <tr class="@(selectedInvoice?.Guid == inv.Guid ? "selected" : "")" style="cursor:pointer;" @onclick="() => SelectInvoice(inv)">
+                            <td class="fw-600">@inv.InvoiceNumber</td>
+                            <td>@inv.InvoiceDate.ToString("dd/MM/yyyy")</td>
+                            <td>@inv.Items.Count</td>
+                            <td class="fw-600">Rs@(inv.GrandTotal.ToString("N0"))</td>
+                            <td>Rs@(inv.PaidAmount.ToString("N0"))</td>
+                            <td><span class="badge @(inv.Status == "Paid" ? "badge-green" : "badge-red")">@inv.Status</span></td>
+                            <td><span class="badge badge-blue">@inv.SaleType</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if (selectedInvoice != null)
+    {
+        <div style="background:#f1f5f9;border-left:1px solid #e2e8f0;overflow-y:auto;padding:16px;">
+            <div class="d-flex align-center justify-between mb-3">
+                <h3 style="font-size:15px;font-weight:600;">Invoice Details</h3>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary btn-sm" @onclick="PrintSelectedInvoice">Print</button>
+                    <button class="btn btn-ghost btn-sm" @onclick="() => selectedInvoice = null">&#10005;</button>
+                </div>
+            </div>
+            <div class="card" style="margin-bottom:12px;">
+                <div style="display:grid;gap:8px;font-size:13px;">
+                    <div class="d-flex justify-between"><span class="text-muted">Invoice #</span><span class="fw-600">@selectedInvoice.InvoiceNumber</span></div>
+                    <div class="d-flex justify-between"><span class="text-muted">Date</span><span class="fw-600">@selectedInvoice.InvoiceDate.ToString("dd/MM/yyyy")</span></div>
+                    <div class="d-flex justify-between"><span class="text-muted">Type</span><span class="badge badge-blue">@selectedInvoice.SaleType</span></div>
+                    <div class="d-flex justify-between"><span class="text-muted">Status</span>
+                        <span class="badge @(selectedInvoice.Status == "Paid" ? "badge-green" : "badge-red")">@selectedInvoice.Status</span>
+                    </div>
+                </div>
+            </div>
+            <div class="text-sm fw-600 text-muted mb-2">Items</div>
+            <div class="card" style="padding:0;margin-bottom:12px;">
+                <table>
+                    <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in selectedInvoice.Items)
+                        {
+                            <tr>
+                                <td>@item.ProductName</td>
+                                <td>@item.Quantity</td>
+                                <td>Rs@(item.UnitPrice.ToString("N0"))</td>
+                                <td class="fw-600">Rs@(item.Total.ToString("N0"))</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="card">
+                <div style="display:grid;gap:6px;font-size:13px;">
+                    <div class="d-flex justify-between"><span class="text-muted">Subtotal</span><span>Rs@(selectedInvoice.GrandTotal.ToString("N0"))</span></div>
+                    <div class="d-flex justify-between"><span class="text-muted">Discount</span><span>-Rs@(selectedInvoice.Discount.ToString("N0"))</span></div>
+                    <div class="d-flex justify-between"><span class="text-muted">Tax</span><span>Rs@(selectedInvoice.Tax.ToString("N0"))</span></div>
+                    <div class="d-flex justify-between"><span class="text-muted">Paid</span><span style="color:#10b981;">Rs@(selectedInvoice.PaidAmount.ToString("N0"))</span></div>
+                    <div class="d-flex justify-between fw-700" style="font-size:14px;border-top:1px solid #e2e8f0;padding-top:6px;">
+                        <span>Balance</span>
+                        <span style="color:@(selectedInvoice.GrandTotal - selectedInvoice.PaidAmount > 0 ? "#ef4444" : "#10b981")">
+                            Rs@((selectedInvoice.GrandTotal - selectedInvoice.PaidAmount).ToString("N0"))
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Invoice> allInvoices = new();
+    private string searchQuery = "";
+    private Invoice? selectedInvoice;
+
+    private List<Invoice> filteredInvoices => string.IsNullOrWhiteSpace(searchQuery)
+        ? allInvoices
+        : allInvoices.Where(i => i.InvoiceNumber.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override void OnInitialized()
+    {
+        allInvoices = InvoiceService.GetAll();
+    }
+
+    private void SelectInvoice(Invoice inv)
+    {
+        selectedInvoice = selectedInvoice?.Guid == inv.Guid ? null : inv;
+    }
+
+    private async Task PrintSelectedInvoice()
+    {
+        if (selectedInvoice == null) return;
+        using var db = new LocalDbContext();
+        var customer = db.Customers.FirstOrDefault(c => c.Guid == selectedInvoice.CustomerGuid && !c.IsDeleted);
+        var items = db.InvoiceItems.Where(i => i.InvoiceGuid == selectedInvoice.Guid && !i.IsDeleted).ToList();
+        var settings = db.CompanySettings.FirstOrDefault();
+        var html = InvoicePrintHelper.BuildInvoiceHtml(selectedInvoice, items, customer, settings?.CompanyName ?? "POS System", settings?.Address ?? "", settings?.TaxNumber ?? "");
+        await JS.InvokeVoidAsync("openInvoicePrint", html);
+    }
+}

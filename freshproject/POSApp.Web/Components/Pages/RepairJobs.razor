@@ -1,0 +1,207 @@
+@page "/repair-jobs"
+@rendermode InteractiveServer
+@inject RepairJobService RepairService
+@inject CustomerService CustomerService
+@inject ProductService ProductService
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">Repair Jobs</h2>
+    <button class="btn btn-primary btn-sm" @onclick="ShowAddForm">+ New Repair Job</button>
+</div>
+
+<div class="stat-grid mb-4">
+    <div class="stat-card amber"><div class="label">Pending</div><div class="value">@allJobs.Count(j => j.Status == "Pending")</div></div>
+    <div class="stat-card blue"><div class="label">In Progress</div><div class="value">@allJobs.Count(j => j.Status == "InProgress")</div></div>
+    <div class="stat-card green"><div class="label">Completed</div><div class="value">@allJobs.Count(j => j.Status == "Completed")</div></div>
+    <div class="stat-card red"><div class="label">Delivered</div><div class="value">@allJobs.Count(j => j.Status == "Delivered")</div></div>
+</div>
+
+<div class="card">
+    <div class="d-flex gap-2 mb-3">
+        <input type="text" class="form-control form-control-sm" placeholder="Search by job #, device, IMEI..." @bind="searchQuery" @bind:event="oninput" style="width:280px;" />
+        <select class="form-control form-control-sm" @bind="statusFilter" style="width:150px;">
+            <option value="">All Status</option>
+            <option value="Pending">Pending</option>
+            <option value="InProgress">In Progress</option>
+            <option value="Completed">Completed</option>
+            <option value="Delivered">Delivered</option>
+        </select>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Job #</th>
+                    <th>Device</th>
+                    <th>IMEI</th>
+                    <th>Customer</th>
+                    <th>Technician</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var job in filteredJobs)
+                {
+                    <tr>
+                        <td class="fw-600">@job.JobNumber</td>
+                        <td>@job.DeviceModel</td>
+                        <td>@GetImeiDisplay(job.IMEI)</td>
+                        <td>@GetCustomerName(job.CustomerGuid)</td>
+                        <td>@job.TechnicianName</td>
+                        <td><span class="badge @GetStatusBadge(job.Status)">@job.Status</span></td>
+                        <td>@job.DateReceived.ToString("dd/MM/yyyy")</td>
+                        <td>
+                            @if (job.Status == "Pending")
+                            {
+                                <button class="btn btn-ghost btn-sm" style="color:#4f46e5;" @onclick="() => HandleUpdateStatus(job.Guid, PendingStatus)">Start</button>
+                            }
+                            else if (job.Status == "InProgress")
+                            {
+                                <button class="btn btn-ghost btn-sm" style="color:#10b981;" @onclick="() => HandleUpdateStatus(job.Guid, CompletedStatus)">Complete</button>
+                            }
+                            else if (job.Status == "Completed")
+                            {
+                                <button class="btn btn-ghost btn-sm" style="color:#4f46e5;" @onclick="() => HandleUpdateStatus(job.Guid, DeliveredStatus)">Deliver</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (showForm)
+{
+    <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center;" @onclick="CloseForm">
+        <div class="card" style="width:480px;max-height:80vh;overflow-y:auto;" @onclick:stopPropagation="true">
+            <div class="card-header">New Repair Job</div>
+            <div class="form-group">
+                <label>Customer</label>
+                <select class="form-control form-control-sm" @bind="formCustomerGuid">
+                    <option value="">-- Select Customer --</option>
+                    @foreach (var c in customers)
+                    {
+                        <option value="@c.Guid">@c.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Device Model</label>
+                <input class="form-control form-control-sm" @bind="formDeviceModel" placeholder="e.g. iPhone 14, Samsung S23" />
+            </div>
+            <div class="form-group">
+                <label>IMEI (Optional)</label>
+                <input class="form-control form-control-sm" @bind="formIMEI" />
+            </div>
+            <div class="form-group">
+                <label>Problem Description</label>
+                <textarea class="form-control form-control-sm" @bind="formProblem" rows="3" placeholder="Describe the issue..."></textarea>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group">
+                    <label>Estimated Cost (Rs)</label>
+                    <input type="number" class="form-control form-control-sm" @bind="formEstimatedCost" />
+                </div>
+                <div class="form-group">
+                    <label>Technician Name</label>
+                    <input class="form-control form-control-sm" @bind="formTechnician" />
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Notes (Optional)</label>
+                <input class="form-control form-control-sm" @bind="formNotes" />
+            </div>
+            <div class="d-flex gap-2" style="justify-content:flex-end;">
+                <button class="btn btn-ghost btn-sm" @onclick="CloseForm">Cancel</button>
+                <button class="btn btn-primary btn-sm" @onclick="SaveJob">Create Job</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string PendingStatus = "Pending";
+    private const string InProgressStatus = "InProgress";
+    private const string CompletedStatus = "Completed";
+    private const string DeliveredStatus = "Delivered";
+
+    private string searchQuery = "";
+    private string statusFilter = "";
+    private List<RepairJob> allJobs = new();
+    private List<Customer> customers = new();
+    private bool showForm;
+    private string formCustomerGuid = "", formDeviceModel = "", formIMEI = "", formProblem = "", formTechnician = "", formNotes = "";
+    private decimal formEstimatedCost;
+
+    private List<RepairJob> filteredJobs
+    {
+        get
+        {
+            var query = allJobs.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+                query = query.Where(j => j.JobNumber.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) || j.DeviceModel.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) || (j.IMEI ?? "").Contains(searchQuery));
+            if (!string.IsNullOrEmpty(statusFilter))
+                query = query.Where(j => j.Status == statusFilter);
+            return query.ToList();
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        allJobs = RepairService.GetAll();
+        customers = CustomerService.GetAll();
+    }
+
+    private string GetImeiDisplay(string? imei) => string.IsNullOrEmpty(imei) ? "-" : imei;
+    private string GetCustomerName(Guid guid) => customers.FirstOrDefault(c => c.Guid == guid)?.Name ?? "Unknown";
+
+    private string GetStatusBadge(string status) => status switch
+    {
+        "Pending" => "badge-amber",
+        "InProgress" => "badge-blue",
+        "Completed" => "badge-green",
+        "Delivered" => "badge-green",
+        _ => "badge-blue"
+    };
+
+    private void ShowAddForm()
+    {
+        formCustomerGuid = ""; formDeviceModel = ""; formIMEI = ""; formProblem = ""; formTechnician = ""; formNotes = "";
+        formEstimatedCost = 0;
+        showForm = true;
+    }
+
+    private void CloseForm() => showForm = false;
+
+    private void SaveJob()
+    {
+        if (string.IsNullOrEmpty(formCustomerGuid) || string.IsNullOrWhiteSpace(formDeviceModel)) return;
+
+        var job = new RepairJob
+        {
+            CustomerGuid = Guid.Parse(formCustomerGuid),
+            DeviceModel = formDeviceModel,
+            IMEI = formIMEI,
+            ProblemDescription = formProblem,
+            EstimatedCost = formEstimatedCost,
+            TechnicianName = formTechnician,
+            Notes = formNotes,
+            Status = "Pending",
+            DateReceived = DateTime.Now,
+            Parts = new()
+        };
+
+        RepairService.Save(job);
+        showForm = false;
+        allJobs = RepairService.GetAll();
+    }
+
+    private void HandleUpdateStatus(Guid guid, string status)
+    {
+        RepairService.UpdateStatus(guid, status);
+        allJobs = RepairService.GetAll();
+    }
+}

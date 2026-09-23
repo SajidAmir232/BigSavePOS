@@ -1,0 +1,144 @@
+@page "/settings"
+@rendermode InteractiveServer
+@inject WebAuthService WebAuth
+@inject NavigationManager Nav
+
+<div class="d-flex align-center justify-between mb-4">
+    <h2 style="font-size:16px;font-weight:600;">Settings</h2>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div class="card">
+        <div class="card-header">Company Information</div>
+        <div class="form-group">
+            <label>Company Name</label>
+            <input class="form-control" @bind="companyName" />
+        </div>
+        <div class="form-group">
+            <label>Address</label>
+            <input class="form-control" @bind="address" />
+        </div>
+        <div class="form-group">
+            <label>Tax Number</label>
+            <input class="form-control" @bind="taxNumber" />
+        </div>
+        <div class="form-group">
+            <label>Tax Rate (%)</label>
+            <input type="number" class="form-control" @bind="taxRate" step="0.1" />
+        </div>
+        <label class="d-flex align-center gap-2 text-sm" style="cursor:pointer;"><input type="checkbox" @bind="showCustomerField" /> Show Customer field on New Sale</label>
+        <label class="d-flex align-center gap-2 text-sm" style="cursor:pointer;"><input type="checkbox" @bind="requireExpiryDate" /> Require expiry date in product form</label>
+        <button class="btn btn-primary btn-sm mt-2" @onclick="SaveSettings">Save Settings</button>
+    </div>
+
+    <div>
+        <div class="card mb-4">
+            <div class="card-header">Account</div>
+            <div style="display:grid;gap:12px;">
+                <div class="d-flex justify-between align-center">
+                    <div>
+                        <div class="fw-600" style="font-size:14px;">@(WebAuth.CurrentUser?.Username ?? "Admin")</div>
+                        <div class="text-muted text-sm">@(WebAuth.CurrentUser?.Role ?? "Admin")</div>
+                    </div>
+                    <span class="badge badge-green">Active</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">Change Password</div>
+            <div class="form-group">
+                <label>Current Password</label>
+                <input type="password" class="form-control" @bind="currentPassword" />
+            </div>
+            <div class="form-group">
+                <label>New Password</label>
+                <input type="password" class="form-control" @bind="newPassword" />
+            </div>
+            <div class="form-group">
+                <label>Confirm New Password</label>
+                <input type="password" class="form-control" @bind="confirmPassword" />
+            </div>
+            <button class="btn btn-primary btn-sm" @onclick="ChangePassword">Change Password</button>
+            @if (!string.IsNullOrEmpty(passwordMessage))
+            {
+                <div style="margin-top:8px;padding:8px;border-radius:6px;font-size:12px;background:@(passwordSuccess ? "#d1fae5" : "#fee2e2");color:@(passwordSuccess ? "#065f46" : "#991b1b");">@passwordMessage</div>
+            }
+        </div>
+
+        <div class="card">
+            <div class="card-header">Session</div>
+            <button class="btn btn-danger btn-sm" @onclick="Logout">Logout</button>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(saveMessage))
+{
+    <div style="margin-top:12px;padding:10px;border-radius:6px;font-size:13px;background:#d1fae5;color:#065f46;">@saveMessage</div>
+}
+
+@code {
+    private string companyName = "My POS Shop";
+    private string address = "";
+    private string taxNumber = "";
+    private decimal taxRate;
+    private bool showCustomerField = true;
+    private bool requireExpiryDate = false;
+    private string saveMessage = "";
+
+    private string currentPassword = "", newPassword = "", confirmPassword = "";
+    private string passwordMessage = "";
+    private bool passwordSuccess;
+
+    protected override void OnInitialized()
+    {
+        using var db = new LocalDbContext();
+        var settings = db.CompanySettings.FirstOrDefault();
+        if (settings != null)
+        {
+            companyName = settings.CompanyName;
+            address = settings.Address ?? "";
+            taxNumber = settings.TaxNumber ?? "";
+            taxRate = settings.TaxRatePercent;
+            showCustomerField = settings.ShowCustomerField;
+            requireExpiryDate = settings.RequireExpiryDate;
+        }
+    }
+
+    private void SaveSettings()
+    {
+        using var db = new LocalDbContext();
+        var settings = db.CompanySettings.FirstOrDefault();
+        if (settings != null)
+        {
+            settings.CompanyName = companyName;
+            settings.Address = address;
+            settings.TaxNumber = taxNumber;
+            settings.TaxRatePercent = taxRate;
+            settings.ShowCustomerField = showCustomerField;
+            settings.RequireExpiryDate = requireExpiryDate;
+            settings.UpdatedAtUtc = DateTime.UtcNow;
+            db.SaveChanges();
+            saveMessage = "Settings saved successfully!";
+        }
+    }
+
+    private void ChangePassword()
+    {
+        passwordMessage = "";
+        if (WebAuth.CurrentUser == null) return;
+
+        var authService = new AuthService();
+        var (success, message) = authService.ChangePassword(WebAuth.CurrentUser.Id, currentPassword, newPassword, confirmPassword);
+        passwordSuccess = success;
+        passwordMessage = message;
+        if (success) { currentPassword = newPassword = confirmPassword = ""; }
+    }
+
+    private void Logout()
+    {
+        WebAuth.Logout();
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+}
